@@ -5,11 +5,4 @@
 3. Restart or refresh the agent session if it does not discover the installed Skill.
 4. Read the installed Skill's `SKILL.md`; each Skill has its own explicit activation rules.
 
-To install from a source checkout, run one command for each Skill you want:
-
-```sh
-sh scripts/sync-codex-skill.sh igapyon-miku-scm
-sh scripts/sync-codex-skill.sh igapyon-github-writer
-```
-
-Use `sh scripts/sync-codex-skill.sh --check <skill-name>` to compare source with the installed copy. Synchronization flows only from this repository to `$CODEX_HOME/skills/`.
+To install from a source checkout, manually copy the desired Skill directory from `skills/` into `$CODEX_HOME/skills/`. The checkout is the source of truth; copy in this direction only.
