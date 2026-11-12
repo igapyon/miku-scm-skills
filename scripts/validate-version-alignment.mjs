@@ -11,7 +11,9 @@ function productVersion(text, label) {
 }
 
 function validateVersion(value, label) {
-  if (typeof value !== "string" || !/^1\.\d{8}\.[1-9]\d*$/.test(value)) {
+  const isMikuDateVersion = typeof value === "string" && /^1\.\d{8}\.[1-9]\d*$/.test(value);
+  const isStableSemver = typeof value === "string" && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value);
+  if (!isMikuDateVersion && !isStableSemver) {
     throw new Error(`Invalid ${label}: ${value}`);
   }
   return value;

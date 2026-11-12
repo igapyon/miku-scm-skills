@@ -13,6 +13,10 @@ Keep the installed Skill names and each Skill's authority boundaries stable. Mik
 
 Use Node.js 22 or newer and Git. Use Node.js 26 for the reproducible release-build environment. Some miku-scm workflows require Git 2.45 or newer. Tests that exercise Maven-backed behavior require Maven and a Java 17 runtime. The `igapyon-github-writer` runner remains local-only.
 
+## Versioning
+
+The repository uses Semantic Versioning (`MAJOR.MINOR.PATCH`), with `package.json` as the authoritative version. Keep `package-lock.json` and the `PRODUCT_VERSION` values in both Skill runners aligned with it. Release tags use `v<version>`; the current version is `0.8.0`, corresponding to tag `v0.8.0`. `npm run check:version` validates the three Skill and package sources.
+
 ## Commands
 
 ```sh
