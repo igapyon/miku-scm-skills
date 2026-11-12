@@ -15,7 +15,7 @@ Use Node.js 22 or newer and Git. Use Node.js 26 for the reproducible release-bui
 
 ## Versioning
 
-The repository uses Semantic Versioning (`MAJOR.MINOR.PATCH`), with `package.json` as the authoritative version. Keep `package-lock.json` and the `PRODUCT_VERSION` values in both Skill runners aligned with it. Release tags use `v<version>`; the current version is `0.8.0`, corresponding to tag `v0.8.0`. `npm run check:version` validates the three Skill and package sources.
+The repository uses Semantic Versioning (`MAJOR.MINOR.PATCH`), with `package.json` as the authoritative version. Keep `package-lock.json` and the `PRODUCT_VERSION` values in both Skill runners aligned with it. Release tags use `v<version>`; the current version is `0.8.1`, corresponding to tag `v0.8.1`. `npm run check:version` validates the three Skill and package sources.
 
 ## Commands
 
