@@ -5,7 +5,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export function validateReleaseTag(tag, packageVersion) {
-  if (!/^1\.\d{8}\.[1-9]\d*$/.test(packageVersion)) throw new Error(`Invalid package version: ${packageVersion}`);
+  const isMikuDateVersion = /^1\.\d{8}\.[1-9]\d*$/.test(packageVersion);
+  const isStableSemver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(packageVersion);
+  if (!isMikuDateVersion && !isStableSemver) throw new Error(`Invalid package version: ${packageVersion}`);
   if (tag !== `v${packageVersion}`) throw new Error(`Release tag ${tag} must equal v${packageVersion}`);
   return packageVersion;
 }

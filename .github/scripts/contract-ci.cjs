@@ -20,7 +20,9 @@ const contractWorkflows = new Set([
 ]);
 
 function validProductVersion(version) {
-  return typeof version === 'string' && /^1\.\d{8}\.[1-9]\d*$/.test(version);
+  if (typeof version !== 'string') return false;
+  return /^1\.\d{8}\.[1-9]\d*$/.test(version)
+    || /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version);
 }
 
 function strictVersionValue(file, text) {
