@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -115,6 +115,21 @@ async function repository(t, options = {}) {
   <profiles><profile><id>validate-version-alignment</id></profile></profiles>
 </project>
 `, "utf8");
+  }
+  if (options.packagePolicy) {
+    const metadata = {
+      name: "miku-scm-package-policy-fixture",
+      version: "0.8.1",
+      scripts: { "check:version": "node scripts/validate-version-alignment.mjs --repo ." },
+      mikuScm: { version: { policy: "semver", source: "package.json", tagPrefix: "v", check: "check:version" } },
+    };
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "package-lock.json"), `${JSON.stringify({
+      name: metadata.name,
+      version: metadata.version,
+      lockfileVersion: 3,
+      packages: { "": { name: metadata.name, version: metadata.version } },
+    }, null, 2)}\n`, "utf8");
   }
   git(root, "add", ".");
   git(root, "commit", "-m", "base");
@@ -291,6 +306,99 @@ test("version-only work uses the deterministic version message without a blockin
     alignment: "aligned",
     increment_status: "increment_observed",
   });
+});
+
+test("explicit package SemVer policy runs its fixed check and reports the increment", async (t) => {
+  const root = await repository(t, { packagePolicy: true });
+  const packageManifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  packageManifest.version = "0.8.2";
+  await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageManifest, null, 2)}\n`, "utf8");
+  const packageLock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
+  packageLock.version = "0.8.2";
+  packageLock.packages[""].version = "0.8.2";
+  await writeFile(path.join(root, "package-lock.json"), `${JSON.stringify(packageLock, null, 2)}\n`, "utf8");
+  const invocations = [];
+
+  const result = await runWorkCommit(options(root), {
+    command(command, args, cwd) {
+      invocations.push({ command, args, cwd });
+      return { ok: true, stdout: "Version alignment OK\n", stderr: "" };
+    },
+  });
+
+  assert.equal(result.status, "committed");
+  assert.equal(result.commit_message, "バージョンを0.8.2へ更新");
+  assert.equal(result.message_source, "version_fallback");
+  assert.deepEqual(result.checks, ["npm run check:version"]);
+  assert.deepEqual(invocations, [{ command: "npm", args: ["run", "check:version"], cwd: await realpath(root) }]);
+  assert.deepEqual(result.version_notice, {
+    version: "0.8.2",
+    version_source: "package.json",
+    version_policy: "semver",
+    coupled_version: "not-applicable",
+    recommended_tag: "v0.8.2",
+    alignment: "not-applicable",
+    increment_status: "increment_observed",
+  });
+});
+
+test("a failed declared package version check leaves the commit unapplied", async (t) => {
+  const root = await repository(t, { packagePolicy: true });
+  const before = git(root, "rev-parse", "HEAD");
+  await writeFile(path.join(root, "README.md"), "version check fixture\n", "utf8");
+  const result = await runWorkCommit(options(root, "--message", "Run version check"), {
+    command: () => ({ ok: false, stdout: "", stderr: "version mismatch" }),
+  });
+
+  assert.equal(result.status, "partial");
+  assert.equal(result.stage, "pre-commit-check");
+  assert.match(result.message, /npm run check:version failed: version mismatch/);
+  assert.equal(git(root, "rev-parse", "HEAD"), before);
+  assert.equal(git(root, "diff", "--cached", "--name-only"), "README.md");
+});
+
+test("invalid explicit package version policy stops before staging", async (t) => {
+  const root = await repository(t, { packagePolicy: true });
+  const before = git(root, "rev-parse", "HEAD");
+  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  manifest.scripts["check:version"] = "node arbitrary.mjs";
+  await writeFile(path.join(root, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  await assert.rejects(runWorkCommit(options(root)), /scripts\.check:version must be exactly/);
+  assert.equal(git(root, "rev-parse", "HEAD"), before);
+  assert.equal(git(root, "diff", "--cached", "--name-only"), "");
+});
+
+test("package metadata changes without a greater version are informational", async (t) => {
+  const root = await repository(t, { packagePolicy: true });
+  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  manifest.description = "fixture update";
+  await writeFile(path.join(root, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  const result = await runWorkCommit(options(root, "--message", "Update package metadata"), {
+    command: () => ({ ok: true, stdout: "", stderr: "" }),
+  });
+
+  assert.equal(result.status, "committed");
+  assert.equal(result.version_notice.increment_status, "increment_not_observed");
+  assert.equal(result.message_source, "supplied");
+});
+
+test("package changes beyond version fields do not receive the version-only fallback title", async (t) => {
+  const root = await repository(t, { packagePolicy: true });
+  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  manifest.version = "0.8.2";
+  manifest.description = "unrelated metadata change";
+  await writeFile(path.join(root, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
+  lock.version = "0.8.2";
+  lock.packages[""].version = "0.8.2";
+  await writeFile(path.join(root, "package-lock.json"), `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+
+  const result = await runWorkCommit(options(root), { command: () => ({ ok: true, stdout: "", stderr: "" }) });
+
+  assert.equal(result.status, "committed");
+  assert.equal(result.message_source, "generic_fallback");
 });
 
 test("ordinary work that changes version sources records an observed increment", async (t) => {

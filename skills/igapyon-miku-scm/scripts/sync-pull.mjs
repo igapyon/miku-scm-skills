@@ -74,7 +74,9 @@ async function refuseDuplicateNext(ctx, op) {
 }
 
 function result(ctx, op, status = "completed") {
-  return { status, warnings: [...new Set([...(op.warnings ?? []), ...ctx.warnings])], method: op.method, operation_id: op.id, previous_branch: op.original.branch, final_branch: branch(ctx), head: head(ctx), base: op.base.name, base_commit: op.base_sha, backup_branch: op.backup_branch ?? null, stash_sha: op.stash_sha ?? null, stash_retained: Boolean(op.stash_sha), merge_verification: op.merge_evidence ?? null, ...op.advice, mutation_invoked: op.mutation_invoked };
+  const advice = op.advice ?? {};
+  const warnings = [...new Set([...(op.warnings ?? []), ...ctx.warnings, ...(advice.warnings ?? [])])];
+  return { status, warnings, method: op.method, operation_id: op.id, previous_branch: op.original.branch, final_branch: branch(ctx), head: head(ctx), base: op.base.name, base_commit: op.base_sha, backup_branch: op.backup_branch ?? null, stash_sha: op.stash_sha ?? null, stash_retained: Boolean(op.stash_sha), merge_verification: op.merge_evidence ?? null, ...advice, warnings, mutation_invoked: op.mutation_invoked };
 }
 
 async function complete(ctx, op, aborted = false) {

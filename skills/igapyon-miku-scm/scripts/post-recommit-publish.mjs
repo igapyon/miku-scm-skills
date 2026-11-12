@@ -10,6 +10,7 @@ import { workflowContractById } from "./miku-scm-workflow-contract-lock.mjs";
 import { createGhCommandRunner, createGitCommandRunner, platformWarnings } from "./miku-scm-command-runner.mjs";
 import { ghRepository, repositoryFromRemote } from "./miku-scm-repository.mjs";
 import { isPathWithin, normalizeOperationalPath, relativeOperationalPath } from "./miku-scm-operational-path.mjs";
+import { parsePackageVersionPolicy } from "./miku-scm-package-version-policy.mjs";
 
 const SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const PUBLISH_APPLY_CONTRACT = workflowContractById().get("pr.publish.apply");
@@ -254,19 +255,34 @@ function chooseUniqueConvention(candidates) {
   return sorted[0].tag;
 }
 
-async function resolveRecommendedTag(root, git) {
+async function resolveRecommendedTag(root, git, head) {
   let version = "";
+  let packageText = "";
+  try {
+    const packageManifest = git(root, ["show", `${head}:package.json`], { allowFailure: true });
+    if (packageManifest.ok) packageText = packageManifest.stdout;
+  } catch {
+    // An unreadable pinned package manifest leaves legacy discovery available.
+  }
+  if (packageText) {
+    let packageJson;
+    try { packageJson = JSON.parse(packageText); } catch { packageJson = null; }
+    if (packageJson) {
+      try {
+        const policy = parsePackageVersionPolicy(packageText);
+        if (policy.configured) return { version: policy.version, tag: policy.recommendedTag };
+        if (typeof packageJson.version === "string") version = packageJson.version;
+      } catch (error) {
+        return { version: "unresolved", tag: "unresolved", warning: `Configured package version could not be resolved: ${error.message}` };
+      }
+    }
+  }
+
   try {
     const standalone = (await readFile(path.join(root, "VERSION.md"), "utf8")).trim();
     if (/^\d{8}[a-z]+$/.test(standalone)) return { version: standalone, tag: `v${standalone}` };
   } catch {
     // VERSION.md is optional.
-  }
-  try {
-    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-    if (typeof packageJson.version === "string") version = packageJson.version;
-  } catch {
-    // package.json is optional.
   }
   if (!version) {
     try {
@@ -473,7 +489,7 @@ async function runPublication(options, dependencies = {}) {
   const finalStatus = gitText(git, root, ["status", "-sb"]);
   const repository = repositoryFromRemote(remoteUrl);
   const prHandoff = resolvePrHandoff(repository, branch, gh);
-  const recommended = await resolveRecommendedTag(root, git);
+  const recommended = await resolveRecommendedTag(root, git, head);
 
   return {
     status: "published",
@@ -487,6 +503,7 @@ async function runPublication(options, dependencies = {}) {
     ...prHandoff,
     version: recommended.version,
     recommended_tag: recommended.tag,
+    warnings: recommended.warning ? [...common.warnings, recommended.warning] : common.warnings,
     human_handoff: "Create the PR and tag through GitHub.",
     tag_mutation: false,
     pull_request_mutation: false,

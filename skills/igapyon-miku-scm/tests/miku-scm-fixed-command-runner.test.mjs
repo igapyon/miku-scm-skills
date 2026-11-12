@@ -15,6 +15,11 @@ test("Windows fixed checks invoke ComSpec with only allowlisted command lines", 
     args: ["/d", "/s", "/c", "npm.cmd run check:index"],
     shell: false,
   });
+  assert.deepEqual(fixedCommandInvocation("npm", ["run", "check:version"], { platform: "darwin" }), {
+    command: "npm",
+    args: ["run", "check:version"],
+    shell: false,
+  });
   assert.deepEqual(fixedCommandInvocation("mvn", ["validate"], { platform: "darwin" }), {
     command: "mvn",
     args: ["validate"],

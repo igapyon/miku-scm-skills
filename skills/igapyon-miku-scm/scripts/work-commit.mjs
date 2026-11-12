@@ -11,6 +11,11 @@ import {
   commandForPlatform,
   runFixedCommand,
 } from "./miku-scm-fixed-command-runner.mjs";
+import {
+  compareStableSemver,
+  isPackageVersionOnlyChange,
+  parsePackageVersionPolicy,
+} from "./miku-scm-package-version-policy.mjs";
 
 export { commandForPlatform } from "./miku-scm-fixed-command-runner.mjs";
 
@@ -118,9 +123,14 @@ function versionNoticeFromText(pom, versionFile) {
   return { version, coupled_version: coupled, recommended_tag: recommendedTag, alignment };
 }
 
-function withIncrementStatus(notice, paths) {
+function withIncrementStatus(notice, paths, previousSemver = "") {
   if (notice.version === "unresolved") {
     return { ...notice, increment_status: "not_applicable" };
+  }
+  if (notice.version_policy === "semver") {
+    let increment = false;
+    try { increment = previousSemver !== "" && compareStableSemver(notice.version, previousSemver) > 0; } catch { /* No comparable prior version. */ }
+    return { ...notice, increment_status: increment ? "increment_observed" : "increment_not_observed" };
   }
   return {
     ...notice,
@@ -130,19 +140,42 @@ function withIncrementStatus(notice, paths) {
   };
 }
 
-async function readVersionNotice(root, read = readFile) {
+async function readVersionNotice(root, head, paths, git, read = readFile, packageText = "") {
+  if (packageText) {
+    const policy = parsePackageVersionPolicy(packageText);
+    if (policy.configured) {
+      const previous = git(root, ["show", `${head}:package.json`], { allowFailure: true });
+      let previousVersion = "";
+      if (previous.ok) {
+        try {
+          const value = JSON.parse(previous.stdout);
+          if (typeof value.version === "string") previousVersion = value.version;
+        } catch { /* A malformed historical manifest has no comparable version. */ }
+      }
+      return withIncrementStatus({
+        version: policy.version,
+        version_source: policy.source,
+        version_policy: policy.policy,
+        coupled_version: "not-applicable",
+        recommended_tag: policy.recommendedTag,
+        alignment: "not-applicable",
+      }, paths, previousVersion);
+    }
+  }
   let pom = "";
   let versionFile = "";
   try { pom = await read(path.join(root, "pom.xml"), "utf8"); } catch (error) { if (error?.code !== "ENOENT") throw error; }
   try { versionFile = await read(path.join(root, "skills", "igapyon-mikuku-agent", "references", "VERSION.md"), "utf8"); } catch (error) { if (error?.code !== "ENOENT") throw error; }
-  return versionNoticeFromText(pom, versionFile);
+  return withIncrementStatus(versionNoticeFromText(pom, versionFile), paths);
 }
 
-async function resolveChecks(root, read = readFile) {
+async function resolveChecks(root, read = readFile, packageTextOverride) {
   const checks = [];
-  let packageText = "";
+  let packageText = packageTextOverride ?? "";
   let pom = "";
-  try { packageText = await read(path.join(root, "package.json"), "utf8"); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  if (packageTextOverride === undefined) {
+    try { packageText = await read(path.join(root, "package.json"), "utf8"); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  }
   if (packageText) {
     const packageJson = JSON.parse(packageText);
     if (packageJson?.mikuIndex?.required === true) {
@@ -151,6 +184,8 @@ async function resolveChecks(root, read = readFile) {
       }
       checks.push({ command: "npm", args: ["run", "check:index"], label: "npm run check:index" });
     }
+    const versionPolicy = parsePackageVersionPolicy(packageText);
+    if (versionPolicy.configured) checks.push(versionPolicy.check);
   }
   try { pom = await read(path.join(root, "pom.xml"), "utf8"); } catch (error) { if (error?.code !== "ENOENT") throw error; }
   if (pom.includes("<id>validate-version-alignment</id>")) {
@@ -159,11 +194,34 @@ async function resolveChecks(root, read = readFile) {
   return checks;
 }
 
-function resolveCommitMessage(paths, notice, supplied) {
+async function resolveCommitMessage(root, head, paths, notice, supplied, git, read = readFile) {
   const explicit = supplied.trim();
   if (explicit) return { message: explicit, source: "supplied" };
   if (paths.length > 0 && paths.every((entry) => VERSION_SOURCE_PATHS.includes(entry)) && notice.version !== "unresolved") {
     return { message: `バージョンを${notice.version}へ更新`, source: "version_fallback" };
+  }
+  if (notice.version_policy === "semver" && notice.increment_status === "increment_observed"
+    && paths.every((entry) => ["package.json", "package-lock.json"].includes(entry))) {
+    const beforePackage = git(root, ["show", `${head}:package.json`], { allowFailure: true });
+    const beforeLock = paths.includes("package-lock.json")
+      ? git(root, ["show", `${head}:package-lock.json`], { allowFailure: true })
+      : { ok: false, stdout: "" };
+    if (beforePackage.ok) {
+      try {
+        const afterPackage = await read(path.join(root, "package.json"), "utf8");
+        const afterLock = paths.includes("package-lock.json")
+          ? await read(path.join(root, "package-lock.json"), "utf8")
+          : "";
+        if (isPackageVersionOnlyChange({
+          paths,
+          beforePackage: beforePackage.stdout,
+          afterPackage,
+          beforeLock: beforeLock.stdout,
+          afterLock,
+          version: notice.version,
+        })) return { message: `バージョンを${notice.version}へ更新`, source: "version_fallback" };
+      } catch { /* Invalid or unreadable comparison falls back to the generic title. */ }
+    }
   }
   return { message: "作業内容を更新", source: "generic_fallback" };
 }
@@ -210,6 +268,8 @@ export async function runWorkCommit(options, dependencies = {}) {
   let checks;
   let message;
   let messageSource;
+  let packageText;
+  let packagePolicy;
   let warnings = [];
   let approvedSensitivePaths = [];
   try {
@@ -230,8 +290,13 @@ export async function runWorkCommit(options, dependencies = {}) {
     warnings = await ensureOperationalExclusion(root, git);
     paths = changedPaths(root, git);
     const conflicts = zeroPaths(output(git, root, ["diff", "--name-only", "--diff-filter=U", "-z"]));
-    versionNotice = withIncrementStatus(await readVersionNotice(root, dependencies.readFile), paths);
-    checks = dependencies.resolveChecks ? await dependencies.resolveChecks(root) : await resolveChecks(root, dependencies.readFile);
+    try { packageText = await (dependencies.readFile ?? readFile)(path.join(root, "package.json"), "utf8"); }
+    catch (error) { if (error?.code !== "ENOENT") throw error; packageText = ""; }
+    packagePolicy = packageText ? parsePackageVersionPolicy(packageText) : { configured: false };
+    versionNotice = await readVersionNotice(root, headBefore, paths, git, dependencies.readFile, packageText);
+    checks = dependencies.resolveChecks
+      ? await dependencies.resolveChecks(root)
+      : await resolveChecks(root, dependencies.readFile, packageText);
 
     if (conflicts.length > 0) return result("conflict", { repository: root, branch, head_before: headBefore, conflicted_paths: conflicts, mutation_invoked: false });
     if (paths.length === 0) return result("up-to-date", { repository: root, branch, head_before: headBefore, warnings, reason: "No changes required; there is nothing to commit", mutation_invoked: false });
@@ -242,7 +307,7 @@ export async function runWorkCommit(options, dependencies = {}) {
     if (unapproved.length > 0) return result("not-applied", { repository: root, branch, head_before: headBefore, paths, warnings, sensitive_paths: unapproved, reason: "Potentially sensitive filenames require user consent before committing", next_action: "Show these paths, obtain explicit user consent, then rerun this workflow with --allow-sensitive-path for each agreed path", mutation_invoked: false });
     if (versionNotice.alignment === "mismatch") return result("not-applied", { repository: root, branch, head_before: headBefore, paths, version_notice: versionNotice, reason: "Coupled version sources are mismatched", mutation_invoked: false });
 
-    ({ message, source: messageSource } = resolveCommitMessage(paths, versionNotice, options.message));
+    ({ message, source: messageSource } = await resolveCommitMessage(root, headBefore, paths, versionNotice, options.message, git, dependencies.readFile));
     if (!message) return result("not-applied", { repository: root, branch, head_before: headBefore, paths, reason: "Commit message is empty", mutation_invoked: false });
   } catch (error) {
     throw preMutationFailure(error);
@@ -265,6 +330,12 @@ export async function runWorkCommit(options, dependencies = {}) {
     staged = true;
     const stagedPaths = stablePaths(zeroPaths(output(git, root, ["diff", "--cached", "--name-only", "-z", "--no-renames"])));
     if (JSON.stringify(stagedPaths) !== JSON.stringify(paths)) throw new Error("Staged paths differ from the reviewed non-ignored worktree paths");
+    if (packagePolicy.configured) {
+      const stagedPackage = git(root, ["show", ":package.json"], { allowFailure: true });
+      if (!stagedPackage.ok || stagedPackage.stdout !== packageText) {
+        throw new Error("The staged package.json differs from the package version policy used for this commit");
+      }
+    }
     const stagedDiff = output(git, root, ["diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv"]);
     const stagedDigest = sha256(stagedDiff);
 

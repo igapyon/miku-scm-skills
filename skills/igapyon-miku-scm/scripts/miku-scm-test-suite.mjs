@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 export const FAST_FILES = Object.freeze([
   "miku-scm-command-runner.test.mjs",
   "miku-scm-fixed-command-runner.test.mjs",
+  "miku-scm-package-version-policy.test.mjs",
   "miku-scm-jst-time.test.mjs",
   "miku-scm-workflow-manifest.test.mjs",
   "miku-scm-workflow-contracts.test.mjs",

@@ -3,7 +3,7 @@ import { workflowCliContractById } from "./miku-scm-cli-contracts.mjs";
 export const WORKFLOW_MANIFEST_VERSION = "miku-scm.workflow-manifest/v2";
 export const WORKFLOW_CONTRACT_VERSION = 1;
 const ISSUE_APPROVAL_CONTRACT_VERSION = 2;
-const SYNC_SOURCES = ["miku-scm-sync-state.mjs", "miku-scm-sync-worktree.mjs", "miku-scm-sync-merge-check.mjs", "post-merge-next-work.mjs", "miku-scm-command-runner.mjs", "miku-scm-jst-time.mjs", "miku-scm-repository.mjs", "miku-scm-operational-storage.mjs"];
+const SYNC_SOURCES = ["miku-scm-sync-state.mjs", "miku-scm-sync-worktree.mjs", "miku-scm-sync-merge-check.mjs", "post-merge-next-work.mjs", "miku-scm-command-runner.mjs", "miku-scm-jst-time.mjs", "miku-scm-repository.mjs", "miku-scm-operational-storage.mjs", "miku-scm-package-version-policy.mjs"];
 const SYNC_PUSH_SOURCES = [...SYNC_SOURCES, "work-commit.mjs", "miku-scm-fixed-command-runner.mjs", "miku-scm-operational-path.mjs", "miku-scm-writing-prepare.mjs", "pr-soft-reset-recommit-preflight.mjs", "pr-recommit-push.mjs", "post-recommit-publish.mjs"];
 
 const WORKFLOW_DEFINITIONS = [
@@ -444,8 +444,9 @@ const SUPPORT_SOURCES = {
   "github-issue-create.mjs": ["miku-scm-draft.mjs", "miku-scm-jst-time.mjs"],
   "github-issue-update.mjs": ["miku-scm-draft.mjs", "miku-scm-jst-time.mjs"],
   "github-issue-comment.mjs": ["miku-scm-draft.mjs", "miku-scm-jst-time.mjs"],
-  "work-commit.mjs": ["miku-scm-operational-storage.mjs"],
-  "post-recommit-publish.mjs": ["miku-scm-command-runner.mjs"],
+  "work-commit.mjs": ["miku-scm-operational-storage.mjs", "miku-scm-package-version-policy.mjs"],
+  "post-merge-next-work.mjs": ["miku-scm-package-version-policy.mjs"],
+  "post-recommit-publish.mjs": ["miku-scm-command-runner.mjs", "miku-scm-package-version-policy.mjs"],
   "pr-recommit-push.mjs": ["miku-scm-command-runner.mjs", "post-recommit-publish.mjs"],
 };
 

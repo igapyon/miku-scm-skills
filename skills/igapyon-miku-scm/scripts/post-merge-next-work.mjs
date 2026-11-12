@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { jstDateParts } from "./miku-scm-jst-time.mjs";
+import { parsePackageVersionPolicy } from "./miku-scm-package-version-policy.mjs";
 
 const NAME = /^[A-Za-z0-9._-]+$/;
 
@@ -79,6 +80,23 @@ function baseFromRemoteHead(root, remote, git = runner) {
   return NAME.test(base) ? base : "";
 }
 async function version(root, commit, git = runner) {
+  const packageManifest = git(root, ["show", `${commit}:package.json`], true);
+  if (packageManifest.ok) {
+    try {
+      const policy = parsePackageVersionPolicy(packageManifest.out);
+      if (policy.configured) {
+        return { source: policy.source, value: policy.version, tag: policy.recommendedTag, commit };
+      }
+    } catch (error) {
+      return {
+        source: "package.json",
+        value: "unresolved",
+        tag: "unresolved",
+        commit,
+        warning: `Configured package version could not be resolved: ${error.message}`,
+      };
+    }
+  }
   const standalone = git(root, ["show", `${commit}:VERSION.md`], true);
   const standaloneValue = standalone.ok ? standalone.out.trim() : "";
   if (/^\d{8}[a-z]+$/.test(standaloneValue)) {
@@ -112,7 +130,15 @@ export function classifyTagLookup(recommendedTag, lookup, baseCommit) {
 export async function nextWorkAdvice(root, baseCommit, remote, git = runner) {
   const info = await version(root, baseCommit, git);
   const lookup = info.tag === "unresolved" ? null : git(root, ["ls-remote", "--tags", remote, `refs/tags/${info.tag}`, `refs/tags/${info.tag}^{}`], true);
-  return { version: info.value, version_source: info.source, recommended_tag: info.tag, ...classifyTagLookup(info.tag, lookup, baseCommit), tag_mutation: false, release_mutation: false };
+  return {
+    version: info.value,
+    version_source: info.source,
+    recommended_tag: info.tag,
+    ...classifyTagLookup(info.tag, lookup, baseCommit),
+    ...(info.warning ? { warnings: [info.warning] } : {}),
+    tag_mutation: false,
+    release_mutation: false,
+  };
 }
 
 export async function run(options, dependencies = {}) {

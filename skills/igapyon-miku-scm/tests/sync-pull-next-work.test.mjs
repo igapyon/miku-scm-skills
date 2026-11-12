@@ -10,6 +10,47 @@ import { fixture } from "./sync-fixture.mjs";
 
 import { doneFixture, withoutGh } from "./sync-pull-support.mjs";
 
+test("sync pull reports the package version and configured tag from its pinned base", async (t) => {
+  const f = await doneFixture(t);
+  await f.write("package.json", JSON.stringify({
+    name: "sync-policy-fixture",
+    version: "0.8.2",
+    scripts: { "check:version": "node scripts/validate-version-alignment.mjs --repo ." },
+    mikuScm: { version: { policy: "semver", source: "package.json", tagPrefix: "v", check: "check:version" } },
+  }, null, 2), f.other);
+  syncGit(f.other, ["add", "package.json"]);
+  syncGit(f.other, ["commit", "-m", "Add package version policy"]);
+  syncGit(f.other, ["push", "origin", "devel"]);
+
+  const result = await runSyncPull(f.options, f.dependencies);
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.version, "0.8.2");
+  assert.equal(result.version_source, "package.json");
+  assert.equal(result.recommended_tag, "v0.8.2");
+  assert.equal(result.tag_status, "absent");
+});
+
+test("sync pull retains an invalid package version policy as an advisory warning", async (t) => {
+  const f = await doneFixture(t);
+  await f.write("package.json", JSON.stringify({
+    name: "sync-policy-fixture",
+    version: "0.8.2",
+    scripts: { "check:version": "node scripts/validate-version-alignment.mjs --repo ." },
+    mikuScm: { version: { policy: "semver" } },
+  }, null, 2), f.other);
+  syncGit(f.other, ["add", "package.json"]);
+  syncGit(f.other, ["commit", "-m", "Add invalid package version policy"]);
+  syncGit(f.other, ["push", "origin", "devel"]);
+
+  const result = await runSyncPull(f.options, f.dependencies);
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.version, "unresolved");
+  assert.equal(result.recommended_tag, "unresolved");
+  assert.ok(result.warnings.some((warning) => warning.includes("Configured package version could not be resolved")));
+});
+
 test("human-confirmed sync pull on private GHE retains staged, unstaged and untracked work", async (t) => {
   const f = await doneFixture(t, {}, true, "ghe.example.test:8443");
   await f.write("carry.txt", "staged\n"); f.git(["add", "carry.txt"]);

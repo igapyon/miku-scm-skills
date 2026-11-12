@@ -15,6 +15,13 @@ This detects a stale generated `index.json`, including a file-set or indexed-siz
 
 If `mikuIndex.required` is `true` but `check:index` is absent, look for the repository-documented index alignment command. If no authoritative command can be resolved, stop before committing and report the missing check instead of guessing a generator command. A missing index in a repository that does not declare one is not a failed check.
 
+When `package.json.mikuScm.version` explicitly declares the supported SemVer
+policy, run the exact `npm run check:version` command before committing. The
+policy declaration is accepted only when its source, tag prefix and check name
+match the documented miku-scm package policy and the package script is the
+fixed version-alignment validator. This check confirms the package, lockfile,
+and bundled Skill runner versions remain aligned.
+
 Apply the same pattern to other explicitly declared commit-time alignment checks, such as coupled-version validation or generated-file freshness checks, when the repository documents them.
 
 ## Required Order

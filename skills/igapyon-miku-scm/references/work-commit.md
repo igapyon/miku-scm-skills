@@ -15,7 +15,9 @@ node skills/igapyon-miku-scm/scripts/miku-scm-run.mjs \
 reviewed title when the current task provides one. The runner reports
 `message_source` as `supplied`, `version_fallback`, or `generic_fallback`.
 The generic fallback is allowed only when no concrete task title is available;
-a version-only change uses the deterministic version-specific title.
+a version-only change uses the deterministic version-specific title. When a
+version update also changes documentation, tests, or Skill source files, pass a
+concise title that describes the complete change.
 
 The workflow is local only. It never pushes, creates or moves a tag, creates a
 Pull Request, or publishes a Release.
@@ -57,7 +59,9 @@ working files untouched, including when the branch has no changes.
    non-ignored path, conflict state, and version notice.
 2. Resolve only recognised repository checks: `npm run check:index` when the
    tracked `package.json` declares `mikuIndex.required` and that exact script,
-   and `mvn validate` when the POM declares `validate-version-alignment`.
+   `npm run check:version` when `package.json.mikuScm.version` declares the
+   supported SemVer policy and exact check script, and `mvn validate` when the
+   POM declares `validate-version-alignment`.
 3. Stage all current ordinary non-ignored unstaged/untracked paths with the fixed NUL-delimited literal-pathspec Git command. Preserve already staged changes, including deletions and renames.
 4. Fix the exact staged path list and binary staged-diff SHA-256. Obtain that
    diff with `--no-ext-diff --no-textconv` so repository-configured renderers
@@ -78,19 +82,21 @@ working files untouched, including when the branch has no changes.
    operation changing these postconditions is partial, with actual final
    branch/HEAD reported; it is never rolled back or recommitted automatically.
 
-The version notice records `increment_observed` when either fixed source
+The version notice records `increment_observed` when either fixed legacy source
 (`pom.xml` or `skills/igapyon-mikuku-agent/references/VERSION.md`) is in the
-commit scope, `increment_not_observed` when a resolved version has neither
-source in scope, and `not_applicable` when no version is resolved. The latter
-two states are informational. A forgotten increment does not block a normal
-commit; an actual coupled-source mismatch still blocks because the repository
-has declared that invariant.
+commit scope, `increment_not_observed` when a resolved legacy version has
+neither source in scope, and `not_applicable` when no version is resolved. For
+the explicit `package.json.mikuScm.version` SemVer policy, the notice reports
+the package version and `v<version>` tag. It records an increment only when the
+stable SemVer value is greater than the value at the initial HEAD. The declared
+`npm run check:version` validates coupled package and runner versions; a failed
+check stops before commit. Notice-only states remain informational.
 
 ## Command Execution
 
 This workflow uses one common Node.js module; it does not require a separate
 macOS or Windows script. It invokes `git` directly. For native Windows fixed
-checks, a platform adapter invokes only `npm.cmd run check:index` or
+checks, a platform adapter invokes only the allowlisted npm checks or
 `mvn.cmd validate` through `ComSpec` with `/d /s /c`; no caller can pass an
 arbitrary command or argument string. macOS/Linux invoke those same fixed
 executable-and-argument arrays directly. It does not invoke PowerShell or

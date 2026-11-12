@@ -20,6 +20,15 @@ form one checked update set. The runner literals keep installed skills'
 `--version` self-contained; they must equal the project version.
 `mvn validate` checks all four values, so do not commit a partial update.
 
+For the standalone `miku-scm-skills` repository, the root
+`package.json.mikuScm.version` explicitly selects stable Semantic Versioning,
+`package.json` as the authoritative source, the `v<version>` release-tag form,
+and `npm run check:version` as the alignment check. That command validates the
+package, lockfile top-level and root-package values, and both bundled Skill
+runner literals. Use `version.increment.validate --policy semver
+--version-file package.json --level <major|minor|patch> --validate-increment`
+to calculate a candidate.
+
 ## Date-Based Versions
 
 Use the repository's documented date, timezone, prefix, separators, sequence, and coupled-file mapping. Do not treat every version containing eight digits as date-based.

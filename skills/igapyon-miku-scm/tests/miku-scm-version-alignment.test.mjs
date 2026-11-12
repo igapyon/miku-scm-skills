@@ -48,6 +48,7 @@ test("version validation reads the package and both Skill sources from --repo", 
   const root = "/synthetic/repository";
   const texts = new Map([
     [`${root}/package.json`, packageText],
+    [`${root}/package-lock.json`, JSON.stringify({ version, packages: { "": { version } } })],
     [`${root}/skills/igapyon-miku-scm/scripts/miku-scm-run.mjs`, `export const PRODUCT_VERSION = "${version}";\n`],
     [`${root}/skills/igapyon-github-writer/scripts/github-writer-workflow-manifest.mjs`, `export const PRODUCT_VERSION = "${version}";\n`],
   ]);
@@ -56,7 +57,9 @@ test("version validation reads the package and both Skill sources from --repo", 
     reads.push(file);
     return texts.get(file);
   });
-  assert.equal(reads.length, 3);
+  assert.equal(reads.length, 4);
   assert.equal(result.packageVersion, version);
+  assert.equal(result.packageLockVersion, version);
+  assert.equal(result.packageLockRootVersion, version);
   assert.equal(result.githubWriterVersion, version);
 });
