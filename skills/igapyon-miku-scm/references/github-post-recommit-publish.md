@@ -172,6 +172,10 @@ The helper returns stable JSON. A fixed `gh pr list --head <branch> --state open
 the deterministic PR creation URL and mark the existing-PR lookup unconfirmed.
 A safely unresolved version or tag convention is also nonfatal and produces
 `recommended_tag: "unresolved"`.
+When the published HEAD declares `package.json.mikuScm.version`, use its
+validated package SemVer and configured `v<version>` tag. If that declaration
+is invalid, keep the verified publication result successful and include a
+warning with the unresolved version and tag.
 
 Every successful push completion report uses the English publication output
 contract below. Each value occupies exactly one line, and unresolved repository,

@@ -1,4 +1,4 @@
-export const HUMAN_OUTPUT_SCHEMA_VERSION = "miku-scm.human-output/v17";
+export const HUMAN_OUTPUT_SCHEMA_VERSION = "miku-scm.human-output/v18";
 
 const WORKFLOW_TITLES = Object.freeze({
   "repository.status": "Repository status",
@@ -483,6 +483,8 @@ function appendWorkCommit(lines, result) {
   if (Array.isArray(result.checks)) lines.push(`Pre-commit checks: ${result.checks.length ? result.checks.join(", ") : "none"}`);
   if (result.version_notice) {
     lines.push(`Version notice: ${displayValue(result.version_notice.version, "unresolved")}`);
+    if (result.version_notice.version_source) lines.push(`Version source: ${displayValue(result.version_notice.version_source)}`);
+    if (result.version_notice.version_policy) lines.push(`Version policy: ${displayValue(result.version_notice.version_policy)}`);
     lines.push(`Coupled version: ${displayValue(result.version_notice.coupled_version, "not-applicable")}`);
     lines.push(`Recommended tag: ${displayValue(result.version_notice.recommended_tag, "unresolved")}`);
     lines.push(`Version increment: ${displayValue(result.version_notice.increment_status, "not_applicable")}`);

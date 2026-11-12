@@ -19,7 +19,7 @@ function validateVersion(value, label) {
   return value;
 }
 
-export function assertVersionAlignment({ packageText, mikuScmText, githubWriterText }) {
+export function assertVersionAlignment({ packageText, packageLockText, mikuScmText, githubWriterText }) {
   let metadata;
   try {
     metadata = JSON.parse(packageText);
@@ -29,12 +29,32 @@ export function assertVersionAlignment({ packageText, mikuScmText, githubWriterT
   const packageVersion = validateVersion(metadata?.version, "package.json version");
   const mikuScmVersion = validateVersion(productVersion(mikuScmText, "miku-scm runner"), "miku-scm PRODUCT_VERSION");
   const githubWriterVersion = validateVersion(productVersion(githubWriterText, "github-writer manifest"), "github-writer PRODUCT_VERSION");
+  let packageLockVersion;
+  let packageLockRootVersion;
+  if (packageLockText !== undefined) {
+    let lock;
+    try {
+      lock = JSON.parse(packageLockText);
+    } catch (error) {
+      throw new Error(`Invalid package-lock.json: ${error.message}`);
+    }
+    packageLockVersion = validateVersion(lock?.version, "package-lock.json version");
+    packageLockRootVersion = validateVersion(lock?.packages?.[""]?.version, "package-lock.json root package version");
+    if (packageLockVersion !== packageVersion || packageLockRootVersion !== packageVersion) {
+      throw new Error(`Version mismatch:\n  package.json:               ${packageVersion}\n  package-lock.json:          ${packageLockVersion}\n  package-lock.json root:     ${packageLockRootVersion}`);
+    }
+  }
   for (const [label, value] of [["miku-scm", mikuScmVersion], ["github-writer", githubWriterVersion]]) {
     if (value !== packageVersion) {
       throw new Error(`Version mismatch:\n  package.json:       ${packageVersion}\n  ${label}: ${value}`);
     }
   }
-  return { packageVersion, mikuScmVersion, githubWriterVersion };
+  return {
+    packageVersion,
+    ...(packageLockText === undefined ? {} : { packageLockVersion, packageLockRootVersion }),
+    mikuScmVersion,
+    githubWriterVersion,
+  };
 }
 
 export async function validateVersionAlignment(argv, read = readFile) {
@@ -43,6 +63,7 @@ export async function validateVersionAlignment(argv, read = readFile) {
     const root = path.resolve(argv[1]);
     files = [
       path.join(root, "package.json"),
+      path.join(root, "package-lock.json"),
       path.join(root, "skills/igapyon-miku-scm/scripts/miku-scm-run.mjs"),
       path.join(root, "skills/igapyon-github-writer/scripts/github-writer-workflow-manifest.mjs"),
     ];
@@ -51,13 +72,24 @@ export async function validateVersionAlignment(argv, read = readFile) {
   } else {
     throw new Error("Usage: validate-version-alignment.mjs --repo <repository-root> | <package.json> <miku-scm-run.mjs> <github-writer-workflow-manifest.mjs>");
   }
-  const [packageText, mikuScmText, githubWriterText] = await Promise.all(files.map((file) => read(file, "utf8")));
-  return assertVersionAlignment({ packageText, mikuScmText, githubWriterText });
+  const contents = await Promise.all(files.map((file) => read(file, "utf8")));
+  const [packageText, mikuScmText, githubWriterText] = argv.length === 2
+    ? [contents[0], contents[2], contents[3]]
+    : contents;
+  return assertVersionAlignment({
+    packageText,
+    ...(argv.length === 2 ? { packageLockText: contents[1] } : {}),
+    mikuScmText,
+    githubWriterText,
+  });
 }
 
 async function main(argv = process.argv.slice(2)) {
   const result = await validateVersionAlignment(argv);
-  console.log(`Version alignment OK: ${result.packageVersion} / miku-scm ${result.mikuScmVersion} / github-writer ${result.githubWriterVersion}`);
+  const lock = result.packageLockVersion === undefined
+    ? ""
+    : ` / package-lock ${result.packageLockVersion} / package-lock root ${result.packageLockRootVersion}`;
+  console.log(`Version alignment OK: ${result.packageVersion}${lock} / miku-scm ${result.mikuScmVersion} / github-writer ${result.githubWriterVersion}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

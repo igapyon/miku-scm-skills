@@ -17,7 +17,7 @@ test("partial commit output shows the actual branch after a concurrent switch", 
 });
 
 test("human output schema is versioned", () => {
-  assert.equal(HUMAN_OUTPUT_SCHEMA_VERSION, "miku-scm.human-output/v17");
+  assert.equal(HUMAN_OUTPUT_SCHEMA_VERSION, "miku-scm.human-output/v18");
 });
 
 test("prepared sync push output identifies its operation and saved evidence", () => {
@@ -683,6 +683,8 @@ test("work commit output reports the one-shot local result and non-blocking vers
       checks: ["mvn validate"],
       version_notice: {
         version: "1.20260810.2",
+        version_source: "pom.xml",
+        version_policy: "miku-date-coupled",
         coupled_version: "20260810b",
         recommended_tag: "v20260810b",
         increment_status: "increment_not_observed",
@@ -697,10 +699,40 @@ test("work commit output reports the one-shot local result and non-blocking vers
   assert.match(output, /^Committed path count: 2$/m);
   assert.match(output, /^Pre-commit checks: mvn validate$/m);
   assert.match(output, /^Version notice: 1\.20260810\.2$/m);
+  assert.match(output, /^Version source: pom\.xml$/m);
+  assert.match(output, /^Version policy: miku-date-coupled$/m);
   assert.match(output, /^Version increment: increment_not_observed$/m);
   assert.match(output, /^Version increment reminder: not observed; this is non-blocking\.$/m);
   assert.match(output, /^Working tree: clean$/m);
   assert.match(output, /Mutation invoked: yes/);
+});
+
+test("work commit output names the configured package version source and policy", () => {
+  const output = renderHumanOutput({
+    workflow: "work.commit",
+    status: "success",
+    delegateStatus: "committed",
+    mutationInvoked: true,
+    result: {
+      status: "committed",
+      repository: "miku-scm-skills",
+      branch: "devel-test",
+      version_notice: {
+        version: "0.8.2",
+        version_source: "package.json",
+        version_policy: "semver",
+        coupled_version: "not-applicable",
+        recommended_tag: "v0.8.2",
+        alignment: "not-applicable",
+        increment_status: "increment_observed",
+      },
+    },
+  });
+
+  assert.match(output, /^Version notice: 0\.8\.2$/m);
+  assert.match(output, /^Version source: package\.json$/m);
+  assert.match(output, /^Version policy: semver$/m);
+  assert.match(output, /^Recommended tag: v0\.8\.2$/m);
 });
 
 test("work commit output warns when a done branch blocks the commit", () => {

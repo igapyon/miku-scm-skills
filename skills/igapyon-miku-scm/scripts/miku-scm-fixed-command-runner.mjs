@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 const FIXED_COMMAND_ARGUMENTS = Object.freeze({
-  npm: Object.freeze(["run", "check:index"]),
+  npm: Object.freeze([["run", "check:index"], ["run", "check:version"]]),
   mvn: Object.freeze(["validate"]),
 });
 
@@ -11,7 +11,8 @@ function sameArguments(left, right) {
 
 function assertFixedCommand(command, args) {
   const expected = FIXED_COMMAND_ARGUMENTS[command];
-  if (!expected || !sameArguments(args, expected)) {
+  const allowed = Array.isArray(expected?.[0]) ? expected : [expected];
+  if (!expected || !allowed.some((candidate) => sameArguments(args, candidate))) {
     throw new Error(`Unsupported fixed command: ${command} ${args.join(" ")}`);
   }
 }

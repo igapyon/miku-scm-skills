@@ -18,12 +18,22 @@ import {
 } from "../scripts/post-recommit-publish.mjs";
 import {
   classifyTagLookup,
+  nextWorkAdvice,
   prepareNextWorkBranch,
   run as runNextWork,
 } from "../scripts/post-merge-next-work.mjs";
 import { runWorkflow } from "../scripts/miku-scm-run.mjs";
 
 import { PUBLISH_SCRIPT, git, recordedGit, NEXT_WORK_DATE, mergedScenario, nextWorkOptions, scenario, optionsFor, preparePublicationPlan, applySavedPublication, applyDependencies, windowsApplyDependencies, nativeApplyDependencies } from "./post-recommit-publish-support.mjs";
+
+function packageManifest(version, versionPolicy = { policy: "semver", source: "package.json", tagPrefix: "v", check: "check:version" }) {
+  return {
+    name: "miku-scm-package-policy-fixture",
+    version,
+    scripts: { "check:version": "node scripts/validate-version-alignment.mjs --repo ." },
+    mikuScm: { version: versionPolicy },
+  };
+}
 
 test("PR handoff resolves GitHub URL results and deterministic fallbacks", () => {
   const repository = {
@@ -126,4 +136,62 @@ test("content VERSION.md derives a v-prefixed tag and resets to a on a new date"
 
   assert.equal(result.version, "20260726a");
   assert.equal(result.recommended_tag, "v20260726a");
+});
+
+test("post-merge advice reads the declared package policy from the pinned base", async (t) => {
+  const state = await scenario(t);
+  await writeFile(path.join(state.repo, "package.json"), `${JSON.stringify(packageManifest("0.8.2"), null, 2)}\n`, "utf8");
+  git(state.repo, "add", "package.json");
+  git(state.repo, "commit", "-m", "add package version policy");
+  const base = git(state.repo, "rev-parse", "HEAD");
+  const advice = await nextWorkAdvice(state.repo, base, "origin", recordedGit([]));
+
+  assert.equal(advice.version, "0.8.2");
+  assert.equal(advice.version_source, "package.json");
+  assert.equal(advice.recommended_tag, "v0.8.2");
+  assert.equal(advice.tag_status, "absent");
+});
+
+test("invalid package version policy leaves next-work advice unresolved with a warning", async (t) => {
+  const state = await scenario(t);
+  await writeFile(path.join(state.repo, "package.json"), `${JSON.stringify(packageManifest("0.8.2", { policy: "semver" }), null, 2)}\n`, "utf8");
+  git(state.repo, "add", "package.json");
+  git(state.repo, "commit", "-m", "add invalid package version policy");
+  const base = git(state.repo, "rev-parse", "HEAD");
+  const advice = await nextWorkAdvice(state.repo, base, "origin", recordedGit([]));
+
+  assert.equal(advice.version, "unresolved");
+  assert.equal(advice.recommended_tag, "unresolved");
+  assert.match(advice.warnings[0], /Configured package version could not be resolved/);
+});
+
+test("declared package policy supplies its configured tag after publication", async (t) => {
+  const state = await scenario(t);
+  await writeFile(path.join(state.repo, "package.json"), `${JSON.stringify(packageManifest("0.8.2"), null, 2)}\n`, "utf8");
+  git(state.repo, "add", "package.json");
+  git(state.repo, "commit", "-m", "add package version policy");
+  state.expectedHead = git(state.repo, "rev-parse", "HEAD");
+
+  const saved = await preparePublicationPlan(state, "--expect-new-remote-branch");
+  const result = await applySavedPublication(state, saved, applyDependencies);
+
+  assert.equal(result.status, "published");
+  assert.equal(result.version, "0.8.2");
+  assert.equal(result.recommended_tag, "v0.8.2");
+});
+
+test("invalid package tag advice warns after publication without changing its success status", async (t) => {
+  const state = await scenario(t);
+  await writeFile(path.join(state.repo, "package.json"), `${JSON.stringify(packageManifest("0.8.2", { policy: "semver" }), null, 2)}\n`, "utf8");
+  git(state.repo, "add", "package.json");
+  git(state.repo, "commit", "-m", "add invalid package version policy");
+  state.expectedHead = git(state.repo, "rev-parse", "HEAD");
+
+  const saved = await preparePublicationPlan(state, "--expect-new-remote-branch");
+  const result = await applySavedPublication(state, saved, applyDependencies);
+
+  assert.equal(result.status, "published");
+  assert.equal(result.version, "unresolved");
+  assert.equal(result.recommended_tag, "unresolved");
+  assert.match(result.warnings.at(-1), /Configured package version could not be resolved/);
 });

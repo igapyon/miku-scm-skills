@@ -196,6 +196,10 @@ the published branch name without that suffix. An open PR, an unmerged closed
 PR, or unavailable matching evidence stops before stash or branch creation.
 This transition also returns the version/recommended-tag check from the
 shared next-work core; creating a tag or Release remains a separate operation.
+When the pinned base commit declares `package.json.mikuScm.version`, resolve
+its package SemVer and configured `v<version>` tag from that commit. An invalid
+declaration leaves the transition successful, reports the version and tag as
+unresolved, and adds a warning.
 
 Successful next-work output shows `Previous branch: <old-branch>` and
 `New work branch: <created-branch>` so the newly created work branch is explicit.
