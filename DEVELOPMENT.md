@@ -15,7 +15,7 @@ Use Node.js 22 or newer and Git. Use Node.js 26 for the reproducible release-bui
 
 ## Versioning
 
-The repository uses Semantic Versioning (`MAJOR.MINOR.PATCH`), with `package.json` as the authoritative version. The root `mikuScm.version` declaration identifies that policy for miku-scm workflows. Keep the top-level and root-package values in `package-lock.json` and the `PRODUCT_VERSION` values in both Skill runners aligned with it. Release tags use `v<version>`; the current development version is `0.8.2`, with release tag `v0.8.2`. `npm run check:version` validates the package, lockfile, and both Skill runner versions.
+The repository uses Semantic Versioning (`MAJOR.MINOR.PATCH`), with `package.json` as the authoritative version. The root `mikuScm.version` declaration identifies that policy for miku-scm workflows. Keep the top-level and root-package values in `package-lock.json` and the `PRODUCT_VERSION` values in both Skill runners aligned with it. Release tags use `v<version>`; for the current development version `0.8.3`, the intended release tag is `v0.8.3`. `npm run check:version` validates the package, lockfile, and both Skill runner versions.
 
 ## Commands
 
@@ -48,4 +48,4 @@ Use a `v<package.json version>` tag. The release workflow checks out the specifi
 
 ## Local Scratch and Skill Installation
 
-The repository `.gitignore` excludes `.codex/`, generated bundles, dependencies, and `workplace/*` while retaining `workplace/.gitkeep`. Synchronization is a one-way copy from `skills/<skill-name>/` to `$CODEX_HOME/skills/<skill-name>/`.
+The repository `.gitignore` excludes `.codex/`, generated bundles, dependencies, and `workplace/*` while retaining `workplace/.gitkeep`. To install from a source checkout, manually copy `skills/<skill-name>/` to `$CODEX_HOME/skills/<skill-name>/`; the copy direction is source to install location only.

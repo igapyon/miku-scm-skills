@@ -1,6 +1,6 @@
 # miku-scm-skillsへの2 Skill移行計画（Luna向け）
 
-状態: 新側実装中。2026-11-12作成。計画作成後、新側の骨格、2 Skill、CI、配布・検査スクリプトを実装中。ローカル検証を進めている。GitHub公開と元側からの除去はまだ行っていない。実施状況は`docs/migration-execution.md`を参照する。
+状態: 履歴資料。2026-11-12作成時点の計画を記録する。移行は完了している。実施内容、検証結果、残る外部確認事項は[`docs/migration-execution.md`](../migration-execution.md)を参照する。この計画の作業手順や当時の状態説明を、現在の運用手順として扱わない。
 
 ## 1. 合意する移行の形
 
@@ -130,7 +130,7 @@ skills/igapyon-github-writer/
 | `.github/scripts/contract-ci.cjs` | コピーし、共有変更・版数判定を新側構成へ変更 | 他利用がないことを確認して削除 |
 | `scripts/contract-ci.test.mjs` | 新側selector用に適応 | 旧selectorとともに削除 |
 | `package.json`の2 Skill向けtest/benchmark scripts | 同じコマンド名で移管 | 対象scriptsだけ除去 |
-| `scripts/sync-codex-skill.sh` | 汎用同期処理をコピーし、2 Skillの使い方を文書化 | 残存Skill用に保持 |
+| `$CODEX_HOME/skills/`への配備 | 手動コピー手順を文書化 | 新側に同期スクリプトは設けない |
 | `scripts/validate-version-alignment.mjs` | 新側packageと2 Skill用のvalidatorを作成 | pomとみくくVERSION用へ縮小して保持 |
 | `scripts/skill-reference-routes.mjs` | 2 Skillの参照到達性検査を新側の配布検査へ移管 | 2 Skillのentryを除去 |
 
@@ -153,16 +153,7 @@ selectorテストでは、対象Skill変更、共有設定変更、対象外文�
 
 参照リンクを新側の実在ファイルへ修正する。過去のIssue/PRや旧コミットを指す歴史的URLは元の宛先を維持する。
 
-ユーザーSkillへの一方向同期は新側から`$CODEX_HOME/skills/<skill-name>`、通常は`~/.codex/skills/<skill-name>`とする。同期コマンドは次の形を維持し、導入説明に2つとも記載する。
-
-```sh
-sh scripts/sync-codex-skill.sh igapyon-miku-scm
-sh scripts/sync-codex-skill.sh --check igapyon-miku-scm
-sh scripts/sync-codex-skill.sh igapyon-github-writer
-sh scripts/sync-codex-skill.sh --check igapyon-github-writer
-```
-
-実際のユーザー配置への同期は、依頼と書き込み許可に含まれる場合だけ実施する。移行作業自体の検証には隔離した展開先を使う。インストール済みコピーから新側への逆同期はしない。
+ソースcheckoutから利用者のSkill保存先へ配備するときは、必要なSkillディレクトリを`skills/`から`$CODEX_HOME/skills/<skill-name>`へ手動でコピーする。新側にローカルユーザー領域への自動同期スクリプトや比較用`--check`機能は設けない。配布ZIPからの手動コピー手順はREADMEとINSTALLに記載する。
 
 完了条件: 新側で2 Skillの保守・CI・導入手順が完結し、旧側を参照する実行時依存がない。
 

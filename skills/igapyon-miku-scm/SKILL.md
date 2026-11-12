@@ -1,14 +1,29 @@
 ---
 name: igapyon-miku-scm
-description: Use only when the user explicitly requests an `igapyon-miku-scm` or `miku-scm` workflow, explicitly says `recommit` or `draft recommit push` to invoke the miku-soft PR-text drafting, soft-reset, and optional push flow, or requests Git/GitHub/version/repository-maintenance work under miku-soft SCM rules. Supports sync pull/push, individual work-cycle stages, approved Issue operations, PR/Release/About drafting, repository maintenance, and version/tag/Release audits. Do not activate for generic Git/GitHub questions, ordinary repository inspection, or release-note writing without an explicit miku-soft SCM request.
+description: Simplify Git/GitHub synchronization with `miku-scm sync pull` and `miku-scm sync push`, including commits, PR text, backups, and verification. Also supports approved Issue operations, PR/Release/About drafting, maintenance, and version/tag/Release audits. Use only when the user explicitly requests an `igapyon-miku-scm` or `miku-scm` workflow, explicitly says `recommit` or `draft recommit push` to invoke the miku-soft PR-text drafting, soft-reset, and optional push flow, or requests Git/GitHub/version/repository-maintenance work under miku-soft SCM rules. Do not activate for generic Git/GitHub questions, ordinary repository inspection, or release-note writing without an explicit miku-soft SCM request.
 ---
 
 # igapyon-miku-scm
 
-Run the fixed miku-soft SCM workflows. This Skill's directory is the **skill
-root**; a workflow's `--repo` is the **target repository**. Never derive the
-runner path from `--repo`. GitHub includes Enterprise and compatible hosts;
-use the selected remote's host and stop at the operation that cannot access it.
+Simplify routine Git/GitHub synchronization through two requests:
+`miku-scm sync pull` brings shared changes into the local work branch, and
+`miku-scm sync push` sends local work to the remote work branch. These are the
+main entry points for the fixed miku-soft SCM workflows.
+
+`sync pull` preserves local work when its checks allow it; on a merged `-done`
+branch it prepares the next work branch. `sync push` connects any necessary
+ordinary commit, one PR draft from the full branch range, a backup, recommit
+using the PR text, and verified publication. Individual stages, Issue
+operations, and release audits are also available through the routes below.
+
+Fixed runners own Git/GitHub mechanics and execution records; the agent writes
+public prose from collected evidence. PR creation and merging, tag changes, and
+Release publication remain human steps in the normal flow.
+
+This Skill's directory is the **skill root**; a workflow's `--repo` is the
+**target repository**. Never derive the runner path from `--repo`. GitHub
+includes Enterprise and compatible hosts; use the selected remote's host and
+stop at the operation that cannot access it.
 
 If no concrete SCM task was requested, acknowledge activation and ask what the
 user wants. Explanations, review, planning, and naming questions do not authorize

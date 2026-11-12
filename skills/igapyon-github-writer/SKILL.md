@@ -1,13 +1,27 @@
 ---
 name: igapyon-github-writer
-description: Use only when the user explicitly invokes `igapyon-github-writer` or `github-writer`; a bare name asks which supported task they want. Continue an agreed use without repetition. Do not activate for unnamed GitHub-writing or Git requests, or for `miku-scm draft recommit push` and its documented `miku-scm pr recommit push` alias; those belong exclusively to `igapyon-miku-scm`.
+description: Draft and save GitHub PR, Release, and About Markdown from local repository evidence, with branch-status reports and approved local backup/recommit workflows. Use only when the user explicitly invokes `igapyon-github-writer` or `github-writer`; a bare name asks which supported task they want. Continue an agreed use without repetition. Do not activate for unnamed GitHub-writing or Git requests, or for `miku-scm draft recommit push` and its documented `miku-scm pr recommit push` alias; those belong exclusively to `igapyon-miku-scm`.
 ---
 
 # igapyon-github-writer
 
-This skill drafts Markdown text for GitHub surfaces from local repository evidence. It can also save drafted GitHub text to a local Markdown file, rebuild local commits with soft reset and a drafted PR text as the commit message, create a local backup branch at the current `HEAD`, and report the current branch status as preparation for GitHub writing work.
+Turn local Git history and project documents into GitHub PR, Release, and About
+Markdown that the user can review and paste into GitHub. Fixed runners collect
+the evidence and save the draft; the agent makes one writing pass over that
+evidence. Use the actual changes for PR explanations, the requested change range
+for Release notes, and repository documents for About text.
 
-After explicit activation, this skill supports GitHub writing text, local draft-file saving for that text, PR soft-reset recommit, local backup-branch creation, and branch-status checks that prepare GitHub writing. It does not create PRs, tags, releases, issues, non-backup branches, or remote changes. Local commits are allowed only inside the explicit PR Soft Reset Recommit workflow.
+The writing workflow saves a local Markdown draft by default. For an untargeted
+PR request, it selects the committed branch range when a usable base exists;
+explicit commit or range targets take precedence. Uncommitted changes are
+excluded unless explicitly requested.
+
+Optional preparation workflows report branch status, create a local backup
+branch at `HEAD`, or rebuild local commits with soft reset and the drafted PR
+text as the commit message. Backup and recommit use a reviewed approval handoff.
+This skill does not create PRs, tags, releases, issues, non-backup branches, or
+remote changes. Local commits are allowed only inside the explicit PR Soft Reset
+Recommit workflow.
 
 ## Activation
 
