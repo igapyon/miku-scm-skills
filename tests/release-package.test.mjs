@@ -58,9 +58,9 @@ test("release ZIP is verified after extraction and both read-only runners execut
 });
 
 test("release tags must match the package version exactly and checksums are write-once", async (t) => {
-  assert.equal(validateReleaseTag("v0.8.0", "0.8.0"), "0.8.0");
-  assert.throws(() => validateReleaseTag("v0.8.1", "0.8.0"), /must equal/);
-  assert.throws(() => validateReleaseTag("v$(touch marker)", "0.8.0"), /must equal/);
+  assert.equal(validateReleaseTag("v0.8.1", "0.8.1"), "0.8.1");
+  assert.throws(() => validateReleaseTag("v0.8.2", "0.8.1"), /must equal/);
+  assert.throws(() => validateReleaseTag("v$(touch marker)", "0.8.1"), /must equal/);
 
   const root = mkdtempSync(path.join(os.tmpdir(), "miku-scm-skills-checksum-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
