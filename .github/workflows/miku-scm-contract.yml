@@ -1,0 +1,114 @@
+name: Miku SCM Contract
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    name: Select changed files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.select.outputs.required }}
+      mode: ${{ steps.select.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          package-manager-cache: false
+      - run: npm run test:ci-selector
+      - uses: actions/github-script@v8
+        id: select
+        with:
+          script: |
+            await require('./.github/scripts/contract-ci.cjs').select(
+              { github, context, core }, 'igapyon-miku-scm');
+
+  contract:
+    needs: select
+    if: needs.select.outputs.mode == 'full'
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: 22
+            full: false
+          - os: ubuntu-latest
+            node: 24
+            full: false
+          - os: macos-latest
+            node: 26
+            full: true
+          - os: windows-latest
+            node: 26
+            full: true
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Run minimum and maintained LTS runtime smoke
+        if: ${{ !matrix.full }}
+        run: node scripts/runtime-smoke.mjs igapyon-miku-scm
+      - name: Set up Java for miku-scm Maven fixtures
+        if: matrix.full
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Verify miku-scm contract
+        if: matrix.full
+        run: |
+          node --version
+          mvn --version
+          node scripts/validate-version-alignment.mjs --repo .
+          npm run test:miku-scm:full
+          npm run contracts:miku-scm:check
+          git diff --check
+
+  versions:
+    needs: select
+    if: needs.select.outputs.mode == 'versions'
+    name: Version alignment and contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          package-manager-cache: false
+      - run: npm run check:version
+      - run: npm run contracts:miku-scm:check
+      - run: npm run contracts:github-writer:check
+
+  required:
+    name: Miku SCM required
+    if: always()
+    needs: [select, contract, versions]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/github-script@v8
+        env:
+          CONTRACT_NEEDS: ${{ toJSON(needs) }}
+        with:
+          script: |
+            require('./.github/scripts/contract-ci.cjs').assertGate(
+              JSON.parse(process.env.CONTRACT_NEEDS));

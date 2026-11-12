@@ -1,0 +1,28 @@
+{
+  "name": "miku-scm-skills",
+  "version": "1.20261112.4",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check:version": "node scripts/validate-version-alignment.mjs --repo .",
+    "contracts:miku-scm": "node skills/igapyon-miku-scm/scripts/miku-scm-workflow-contracts.mjs",
+    "contracts:miku-scm:check": "node skills/igapyon-miku-scm/scripts/miku-scm-workflow-contracts.mjs --check",
+    "contracts:github-writer": "node skills/igapyon-github-writer/scripts/github-writer-workflow-contracts.mjs",
+    "contracts:github-writer:check": "node skills/igapyon-github-writer/scripts/github-writer-workflow-contracts.mjs --check",
+    "contracts:check": "npm run contracts:miku-scm:check && npm run contracts:github-writer:check",
+    "test:miku-scm:fast": "node skills/igapyon-miku-scm/scripts/miku-scm-test-suite.mjs --fast",
+    "test:miku-scm:full": "node skills/igapyon-miku-scm/scripts/miku-scm-test-suite.mjs --full",
+    "test:github-writer:fast": "node skills/igapyon-github-writer/scripts/github-writer-test-suite.mjs --fast",
+    "test:github-writer:full": "node skills/igapyon-github-writer/scripts/github-writer-test-suite.mjs --full",
+    "test:ci-selector": "node --test scripts/contract-ci.test.mjs",
+    "test:package": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "benchmark:github-writer": "node skills/igapyon-github-writer/scripts/github-writer-benchmark.mjs",
+    "test": "npm run check:version && npm run test:miku-scm:full && npm run test:github-writer:full && npm run test:ci-selector && npm run test:package && npm run contracts:check",
+    "build:bundle": "node scripts/build-skill-bundle.mjs",
+    "build:bundle:zip": "npm run build:bundle && node scripts/build-skill-bundle-zip.mjs"
+  }
+}

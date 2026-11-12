@@ -1,0 +1,96 @@
+name: GitHub Writer Contract
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    name: Select changed files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.select.outputs.required }}
+      mode: ${{ steps.select.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          package-manager-cache: false
+      - run: npm run test:ci-selector
+      - uses: actions/github-script@v8
+        id: select
+        with:
+          script: |
+            await require('./.github/scripts/contract-ci.cjs').select(
+              { github, context, core }, 'igapyon-github-writer');
+
+  contract:
+    needs: select
+    if: needs.select.outputs.mode == 'full'
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+        node:
+          - 22
+          - 24
+          - 26
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Verify GitHub Writer contract
+        run: |
+          node --version
+          npm run check:version
+          npm run test:github-writer:full
+          git diff --check
+
+  versions:
+    needs: select
+    if: needs.select.outputs.mode == 'versions'
+    name: Version alignment and contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          package-manager-cache: false
+      - run: npm run check:version
+      - run: npm run contracts:miku-scm:check
+      - run: npm run contracts:github-writer:check
+
+  required:
+    name: GitHub Writer required
+    if: always()
+    needs: [select, contract, versions]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/github-script@v8
+        env:
+          CONTRACT_NEEDS: ${{ toJSON(needs) }}
+        with:
+          script: |
+            require('./.github/scripts/contract-ci.cjs').assertGate(
+              JSON.parse(process.env.CONTRACT_NEEDS));
