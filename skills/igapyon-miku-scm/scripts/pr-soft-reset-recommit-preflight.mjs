@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { assertNotDoneRescueBranch } from "./miku-scm-rescue-branch.mjs";
+
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
@@ -227,6 +229,7 @@ export function runRecommit(args, dependencies = {}) {
     }
 
     const branch = runGit(root, ["branch", "--show-current"], { allowFailure: true }).stdout;
+    assertNotDoneRescueBranch(root, branch, runGit);
     const resolvedBase = args.base
       ? { base: args.base, source: "explicit --base" }
       : resolveDefaultBase(root, branch, remote, runGit);

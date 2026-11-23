@@ -77,14 +77,14 @@ export function checkedId(id) {
   return id;
 }
 
-export async function context(repo, dependencies = {}) {
+export async function context(repo, dependencies = {}, { existingStorageOnly = false } = {}) {
   const git = dependencies.git ?? syncGit;
   const root = await realpath(git(repo, ["rev-parse", "--show-toplevel"]).out);
   const common = await realpath(git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).out);
   const gitDir = await realpath(git(root, ["rev-parse", "--path-format=absolute", "--git-dir"]).out);
-  const warnings = await ensureOperationalExclusion(root, git);
   const storage = path.join(root, "workplace/miku-scm/sync");
-  await mkdir(storage, { recursive: true });
+  const warnings = existingStorageOnly ? [] : await ensureOperationalExclusion(root, git);
+  if (!existingStorageOnly) await mkdir(storage, { recursive: true });
   const actual = await realpath(storage);
   if (path.relative(root, actual).startsWith("..") || path.isAbsolute(path.relative(root, actual))) throw new Error("Sync storage escapes the repository");
   return { root, common, gitDir, storage: actual, git, dependencies, warnings };
@@ -219,13 +219,17 @@ export function resolveBase(ctx, remote, supplied = "") {
   return { name: base, ref: `refs/remotes/${remote}/${base}` };
 }
 
-export function fetchBase(ctx, remote, base) {
+export function fetchBase(ctx, remote, base, { onlyBase = false } = {}) {
   assertRemote(ctx, remote);
   requireFetchBranch(ctx, remote, base.name);
-  ctx.git(ctx.root, ["fetch", remote.name]);
+  const args = onlyBase ? ["--", remote.name, `refs/heads/${base.name}`] : [remote.name];
+  ctx.git(ctx.root, ["fetch", ...args]);
   assertRemote(ctx, remote);
   const sha = ctx.git(ctx.root, ["rev-parse", "--verify", `${base.ref}^{commit}`]).out;
   if (!SHA.test(sha)) throw new Error("Fetched base commit is invalid");
+  if (onlyBase && sha !== ctx.git(ctx.root, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"]).out) {
+    throw new Error("Fetched base does not match its remote-tracking ref");
+  }
   return sha;
 }
 
@@ -322,7 +326,7 @@ export async function lock(ctx, id, recover = false, { allowMissingInitializatio
 export function newId() { return randomUUID(); }
 export async function openSync(repo, dependencies, id, recover = false, recoveryOptions = {}) {
   try {
-    const ctx = await context(repo, dependencies);
+    const ctx = await context(repo, dependencies, recoveryOptions);
     const release = await lock(ctx, id, recover, recoveryOptions);
     return { ctx, release };
   } catch (error) { error.mutationInvoked = false; throw error; }
@@ -337,15 +341,44 @@ export async function afterAction(ctx, op) { op.attempt.completed = true; await 
 
 export async function failure(ctx, op, error) {
   const closed = op && TERMINAL.has(op.status);
-  const status = !closed && op?.mutation_invoked ? "partial" : "not-applied";
-  if (op && !closed) { op.status = op.mutation_invoked ? "partial" : "rejected"; op.error = error.message; await saveOperation(ctx, op); }
-  return { status, warnings: ctx.warnings, reason: error.message, ...(error.gitDiagnostic ? { diagnostic: error.gitDiagnostic } : {}), mutation_invoked: closed ? false : op?.mutation_invoked ?? false, operation_id: op?.id ?? null, stage: op?.phase ?? "inspect", final_branch: branch(ctx), head: head(ctx), backup_branch: op?.backup_branch ?? null, stash_sha: op?.stash_sha ?? null, next_action: !closed && op?.mutation_invoked ? "Inspect the retained sync operation; resume or abort it explicitly" : error.gitDiagnostic?.next_action ?? "Resolve the reported condition before starting sync" };
+  const mutated = !closed && Boolean(op?.mutation_invoked);
+  const status = mutated ? "partial" : "not-applied";
+  const warnings = [...ctx.warnings];
+  if (op && !closed) {
+    op.status = mutated ? "partial" : "rejected";
+    op.error = error.message;
+    try {
+      await saveOperation(ctx, op);
+    } catch {
+      warnings.push("Could not update the saved sync operation. Inspect its last saved state before recovery.");
+    }
+  }
+  const observe = (read) => {
+    try { return read(ctx); } catch { return null; }
+  };
+  return {
+    status, warnings, reason: error.message,
+    ...(error.gitDiagnostic ? { diagnostic: error.gitDiagnostic } : {}),
+    mutation_invoked: mutated,
+    operation_id: op?.id ?? null,
+    stage: op?.phase ?? "inspect",
+    previous_branch: op?.original?.branch ?? null,
+    next_branch: op?.next_branch ?? null,
+    final_branch: observe(branch),
+    head: observe(head),
+    backup_branch: op?.backup_branch ?? null,
+    stash_sha: op?.stash_sha ?? null,
+    restore_status: op?.restore_started ? (op.restore_ok ? "restored" : "failed") : "not-started",
+    next_action: mutated
+      ? "Inspect the retained sync operation before proceeding"
+      : error.gitDiagnostic?.next_action ?? "Resolve the reported condition before starting sync",
+  };
 }
 
 function baseRecordFile(ctx, name) { return path.join(ctx.storage, "branches", `${hash(name)}.json`); }
-export async function saveBaseRecord(ctx, name, remote, base, sha) {
-  if (!SHA.test(sha) || !ancestor(ctx, sha, head(ctx))) throw new Error("Cannot record an unverified branch base");
-  const record = { schema: SYNC_SCHEMA, root: ctx.root, common: ctx.common, branch: name, remote_identity: remote.identity, remote_name: remote.name, base: base.name, base_sha: sha, verified_head: head(ctx) };
+export async function saveBaseRecord(ctx, name, remote, base, sha, verifiedHead = head(ctx)) {
+  if (!SHA.test(sha) || !SHA.test(verifiedHead) || !ancestor(ctx, sha, verifiedHead)) throw new Error("Cannot record an unverified branch base");
+  const record = { schema: SYNC_SCHEMA, root: ctx.root, common: ctx.common, branch: name, remote_identity: remote.identity, remote_name: remote.name, base: base.name, base_sha: sha, verified_head: verifiedHead };
   await writeJson(baseRecordFile(ctx, name), record);
 }
 

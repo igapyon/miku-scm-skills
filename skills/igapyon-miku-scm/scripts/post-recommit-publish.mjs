@@ -8,9 +8,10 @@ import { pathToFileURL } from "node:url";
 
 import { workflowContractById } from "./miku-scm-workflow-contract-lock.mjs";
 import { createGhCommandRunner, createGitCommandRunner, platformWarnings } from "./miku-scm-command-runner.mjs";
-import { ghRepository, repositoryFromRemote } from "./miku-scm-repository.mjs";
+import { branchNameConflicts, ghRepository, localBranchNames, repositoryFromRemote } from "./miku-scm-repository.mjs";
 import { isPathWithin, normalizeOperationalPath, relativeOperationalPath } from "./miku-scm-operational-path.mjs";
 import { parsePackageVersionPolicy } from "./miku-scm-package-version-policy.mjs";
+import { assertNotDoneRescueBranch } from "./miku-scm-rescue-branch.mjs";
 
 const SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const PUBLISH_APPLY_CONTRACT = workflowContractById().get("pr.publish.apply");
@@ -109,6 +110,18 @@ export function parseArgs(argv, cwd = process.cwd()) {
 
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 
+function publicationRemoteDigest(git, root, remote) {
+  const urls = (args) => {
+    const result = git(root, args);
+    if (!result.ok) throw new Error("Cannot read publication remote URLs");
+    return (result.stdout ?? result.out).replace(/[\r\n]+$/, "").split(/\r?\n/);
+  };
+  return sha256(JSON.stringify({
+    fetch_urls: urls(["remote", "get-url", "--all", remote]),
+    push_urls: urls(["remote", "get-url", "--push", "--all", remote]),
+  }));
+}
+
 function branchFileToken(branch) {
   const slug = String(branch).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 72) || "branch";
   return `${slug}-${sha256(String(branch)).slice(0, 12)}`;
@@ -189,14 +202,6 @@ export function createGitRunner(options = {}) {
 
 function gitText(git, cwd, args, options) {
   return git(cwd, args, options).stdout.trim();
-}
-
-function publicationRemoteDigest(git, root, remote) {
-  const urls = (args) => git(root, args).stdout.replace(/[\r\n]+$/, "").split(/\r?\n/);
-  return sha256(JSON.stringify({
-    fetch_urls: urls(["remote", "get-url", "--all", remote]),
-    push_urls: urls(["remote", "get-url", "--push", "--all", remote]),
-  }));
 }
 
 function assertUnchanged(label, actual, expected) {
@@ -374,6 +379,7 @@ async function runPublication(options, dependencies = {}) {
   await dependencies.validateSyncSnapshot?.({ phase: "publication-inspect", root });
   const branch = gitText(git, root, ["branch", "--show-current"], { allowFailure: true });
   if (!branch) throw new Error("Current branch is detached or unresolved");
+  assertNotDoneRescueBranch(root, branch, git);
   if (dependencies.expectedPublicationBranch && branch !== dependencies.expectedPublicationBranch) throw new Error("Reviewed publication branch changed; run preflight again");
   if (branch.endsWith("-done")) throw new Error(`Current branch is frozen: ${branch}`);
   gitText(git, root, ["check-ref-format", "--branch", branch]);
@@ -392,9 +398,12 @@ async function runPublication(options, dependencies = {}) {
   if (statusPorcelain && (options.apply || !dependencies.allowDirtyPreflight)) throw new Error("Working tree or index is dirty");
 
   const doneBranch = `${branch}-done`;
-  if (git(root, ["show-ref", "--verify", "--quiet", `refs/heads/${doneBranch}`], { allowFailure: true }).ok) {
-    throw new Error(`Local completion branch already exists: ${doneBranch}`);
-  }
+  const assertCompletionBranchAvailable = () => {
+    if (branchNameConflicts(localBranchNames(root, git), doneBranch)) {
+      throw new Error(`Local completion branch already exists or its ref path is occupied: ${doneBranch}`);
+    }
+  };
+  assertCompletionBranchAvailable();
 
   const remoteUrl = gitText(git, root, ["remote", "get-url", options.remote]);
   const upstreamResult = git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], {
@@ -455,6 +464,7 @@ async function runPublication(options, dependencies = {}) {
   });
   await dependencies.validateSyncSnapshot?.({ phase: "publication-push", root });
   assertPublicationState();
+  assertCompletionBranchAvailable();
   let pushMode;
   if (options.expectedRemoteHead) {
     pushMode = "force-with-explicit-lease";

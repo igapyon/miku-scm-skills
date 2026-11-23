@@ -94,6 +94,18 @@ test("saved publication rechecks a branch changed by the mutation callback", asy
   assert.equal(attempt.status, "unresolved");
 });
 
+test("saved publication stops before push when the completion branch path becomes occupied", async (t) => {
+  const state = await scenario(t);
+  const plan = await preparePublicationPlan(state);
+  const descendant = `${state.branch}-done/topic`;
+  await assert.rejects(applySavedPublication(state, plan, {
+    gh: null, beforeMutation: () => git(state.repo, "branch", descendant),
+  }), /Local completion branch.*ref path is occupied/);
+  assert.equal(git(state.remote, "for-each-ref", "--format=%(refname)", "refs/heads/"), "refs/heads/devel");
+  assert.equal(git(state.repo, "branch", "--show-current"), state.branch);
+  assert.equal(git(state.repo, "rev-parse", descendant), state.expectedHead);
+});
+
 test("legacy ordinary apply arguments are rejected before any Git command", async (t) => {
   const state = await scenario(t);
   const args = ["--repo", state.repo, "--expected-head", state.expectedHead,

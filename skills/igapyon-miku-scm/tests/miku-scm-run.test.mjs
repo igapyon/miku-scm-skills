@@ -22,6 +22,7 @@ import {
 } from "../scripts/miku-scm-help.mjs";
 import { HUMAN_OUTPUT_SCHEMA_VERSION } from "../scripts/miku-scm-human-output.mjs";
 import { WORKFLOW_MANIFEST } from "../scripts/miku-scm-workflow-manifest.mjs";
+import { syncGit } from "../scripts/miku-scm-sync-state.mjs";
 
 const RUNNER_PATH = fileURLToPath(new URL("../scripts/miku-scm-run.mjs", import.meta.url));
 const REPOSITORY_ROOT = path.resolve(path.dirname(RUNNER_PATH), "../../..");
@@ -30,6 +31,39 @@ async function workspace(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "miku-scm-runner-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
+}
+
+function git(root, ...args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout).trim()}`);
+  return (result.stdout || "").trim();
+}
+
+async function mergedDoneRepository(root, name, branch) {
+  const repository = path.join(root, name);
+  const remote = path.join(root, `${name}.git`);
+  await mkdir(repository);
+  git(root, "init", "--bare", remote);
+  git(repository, "init", "-b", "devel");
+  git(repository, "config", "user.name", "Runner Test");
+  git(repository, "config", "user.email", "runner@example.invalid");
+  await writeFile(path.join(repository, ".gitignore"), "workplace/\n");
+  await writeFile(path.join(repository, "pom.xml"), "<project><version>1.20260727.3</version></project>\n");
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  git(repository, "add", ".gitignore", "pom.xml", "README.md");
+  git(repository, "commit", "-m", "base");
+  git(repository, "remote", "add", "origin", remote);
+  git(repository, "push", "-u", "origin", "devel");
+  git(repository, "switch", "-c", branch);
+  await writeFile(path.join(repository, "README.md"), "merged\n");
+  git(repository, "add", "README.md");
+  git(repository, "commit", "-m", "published work");
+  const head = git(repository, "rev-parse", "HEAD");
+  git(repository, "push", "origin", "HEAD:refs/heads/devel");
+  git(repository, "fetch", "origin");
+  git(repository, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/devel");
+  git(repository, "branch", "-m", `${branch}-done`);
+  return { repository, head };
 }
 
 async function reviewedApprovalArgs(root, artifactRoot, runId, handoffs) {
@@ -162,7 +196,9 @@ test("registry exposes fixed workflow IDs and no free-form command workflow", ()
     "repository.sync.push.prepare",
     "repository.sync.push.draft.prepare",
     "repository.sync.push.apply",
+    "repository.sync.push.evidence.read",
     "repository.post-merge.next-work",
+    "repository.done.recover",
     "work.commit",
     "pr.publish.preflight",
     "pr.publish.apply",
@@ -181,7 +217,7 @@ test("registry exposes fixed workflow IDs and no free-form command workflow", ()
 });
 
 test("manifest exposes complete AI-readable CLI help contracts", () => {
-  assert.equal(WORKFLOW_MANIFEST.length, 38);
+  assert.equal(WORKFLOW_MANIFEST.length, 40);
   for (const workflow of WORKFLOW_MANIFEST) {
     assert.equal(typeof workflow.cli.summary, "string", workflow.id);
     assert.ok(workflow.cli.summary.length > 0, workflow.id);
@@ -960,116 +996,77 @@ test("unknown workflow and arbitrary helper options are rejected without executi
 
 test("post-merge workflow keeps merge confirmation and apply inside one fixed runner call", async (t) => {
   const root = await workspace(t);
-  let branch = "devel-tiga0727vda-done";
-  let head = "a".repeat(40);
-  let upstream = "";
-  const baseHead = "b".repeat(40);
-  let tagLookupResult = { ok: true, out: `${baseHead}\trefs/tags/v20260727c` };
+  const standard = await mergedDoneRepository(root, "post-merge-standard", "devel-tiga0727vda");
+  const tagFailure = await mergedDoneRepository(root, "post-merge-tag-failure", "devel-tiga0727vda");
+  const legacy = await mergedDoneRepository(root, "post-merge-legacy", "tiga0501xea");
+  const baseHead = standard.head;
+  let tagLookupResult = { ok: true, out: `${baseHead}\trefs/tags/v20260727c`, err: "" };
   const calls = [];
-  const git = (_cwd, args, allowFailure = false) => {
+  const sharedGit = (cwd, args, options = {}) => {
     calls.push(args);
-    const command = args.join(" ");
-    if (command === "rev-parse --show-toplevel") return { ok: true, out: root };
-    if (command === "branch --show-current") return { ok: true, out: branch };
-    if (command === "status --porcelain") return { ok: true, out: "" };
-    if (command === "rev-parse HEAD") return { ok: true, out: head };
-    if (command === "fetch origin") return { ok: true, out: "" };
-    if (command === "symbolic-ref --quiet --short refs/remotes/origin/HEAD") {
-      return { ok: true, out: "origin/devel" };
+    if (args[0] === "ls-remote" && args[1] === "--tags") {
+      const stdout = tagLookupResult.out;
+      return {
+        ok: tagLookupResult.ok,
+        code: tagLookupResult.ok ? 0 : 2,
+        stdout,
+        bytes: Buffer.from(stdout),
+        out: stdout,
+        err: tagLookupResult.err,
+      };
     }
-    if (command === "rev-parse origin/devel") return { ok: true, out: baseHead };
-    if (command === "show-ref --verify --quiet refs/heads/devel-tiga0727weg") {
-      return { ok: false, out: "" };
-    }
-    if (command === `show ${baseHead}:VERSION.md`) return { ok: false, out: "" };
-    if (command === `show ${baseHead}:pom.xml`) {
-      return { ok: true, out: "<project><version>1.20260727.3</version></project>" };
-    }
-    if (command.startsWith("ls-remote --tags origin refs/tags/v20260727c")) {
-      return tagLookupResult;
-    }
-    if (command === "check-ref-format --branch devel-tiga0727weg") return { ok: true, out: "devel-tiga0727weg" };
-    if (command === "check-ref-format refs/remotes/origin/devel") return { ok: true, out: "" };
-    if (command === "rev-parse --verify refs/remotes/origin/devel^{commit}" || command === "rev-parse --verify refs/heads/devel-tiga0727weg^{commit}") return { ok: true, out: baseHead };
-    if (command === "branch devel-tiga0727weg refs/remotes/origin/devel") {
-      upstream = "refs/remotes/origin/devel";
-      return { ok: true, out: "" };
-    }
-    if (command === "for-each-ref --format=%(upstream) refs/heads/devel-tiga0727weg") return { ok: true, out: upstream };
-    if (command === "switch --no-overwrite-ignore devel-tiga0727weg") {
-      branch = "devel-tiga0727weg";
-      head = baseHead;
-      return { ok: true, out: "" };
-    }
-    if (command === "rev-list --left-right --count HEAD...origin/devel") {
-      return { ok: true, out: "0\t0" };
-    }
-    if (allowFailure) return { ok: false, out: "" };
-    throw new Error(`Unexpected git command: ${command}`);
+    return syncGit(cwd, args, options);
   };
-
-  const rejected = await runWorkflow("repository.post-merge.next-work", [
-    "--repo", root,
-    "--apply",
-  ], {
-    cwd: root,
+  const legacyGit = (cwd, args, allowFailure = false) => {
+    calls.push(args);
+    return syncGit(cwd, args, { allowFailure });
+  };
+  const dependenciesFor = (repository, runId) => ({
+    cwd: repository,
     artifactRoot: path.join(root, "runs"),
-    runId: "post-merge-rejected",
-    now: () => new Date("2026-07-27T22:46:00+09:00"),
-    postMergeDependencies: { git },
+    runId,
+    postMergeDependencies: {
+      git: legacyGit,
+      now: () => new Date("2026-07-27T22:46:00+09:00"),
+    },
+    syncPullDependencies: {
+      git: sharedGit,
+      now: () => new Date("2026-07-27T22:46:00+09:00"),
+    },
   });
+
+  const rejected = await runWorkflow("repository.post-merge.next-work", ["--repo", standard.repository, "--apply"], dependenciesFor(standard.repository, "post-merge-rejected"));
   assert.equal(rejected.status, "not-applied");
   assert.match(rejected.error.message, /--confirmed-merged and --apply are required/);
   assert.equal(calls.length, 0);
 
   const result = await runWorkflow("repository.post-merge.next-work", [
-    "--repo", root,
+    "--repo", standard.repository,
+    "--published-head", standard.head,
     "--confirmed-merged",
     "--apply",
-  ], {
-    cwd: root,
-    artifactRoot: path.join(root, "runs"),
-    runId: "post-merge-ok",
-    now: () => new Date("2026-07-27T22:46:00+09:00"),
-    postMergeDependencies: {
-      git,
-      now: () => new Date("2026-07-27T22:46:00+09:00"),
-    },
-  });
+  ], dependenciesFor(standard.repository, "post-merge-ok"));
   assert.equal(result.status, "success");
   assert.equal(result.result.status, "created");
   assert.equal(result.result.final_branch, "devel-tiga0727weg");
   assert.equal(result.result.comparison, "0 0");
   assert.equal(result.mutation_invoked, true);
   assert.match(result.human_output, /^Previous branch: devel-tiga0727vda-done$/m);
-  assert.match(result.human_output, new RegExp(`^Base commit: ${baseHead}$`, "m"));
+  assert.match(result.human_output, new RegExp(`^Base commit: ${standard.head}$`, "m"));
   assert.match(result.human_output, /^Tag status: confirmed$/m);
   assert.match(result.human_output, /^Next work branch: devel-tiga0727weg$/m);
   assert.match(result.human_output, /\n\nNext work branch is ready: devel-tiga0727weg\n$/);
-  assert.ok(calls.some((args) => args.join(" ") === "fetch origin"));
-  const attempt = JSON.parse(await readFile(
-    path.join(root, "runs", "post-merge-ok", "attempt.json"),
-    "utf8",
-  ));
+  assert.ok(calls.some((args) => args[0] === "fetch" && args.includes("refs/heads/devel")));
+  const attempt = JSON.parse(await readFile(path.join(root, "runs", "post-merge-ok", "attempt.json"), "utf8"));
   assert.equal(attempt.status, "success");
 
-  branch = "devel-tiga0727vda-done";
-  head = "a".repeat(40);
   tagLookupResult = { ok: false, out: "", err: "remote tag lookup failed" };
   const lookupFailed = await runWorkflow("repository.post-merge.next-work", [
-    "--repo", root,
+    "--repo", tagFailure.repository,
+    "--published-head", tagFailure.head,
     "--confirmed-merged",
     "--apply",
-  ], {
-    cwd: root,
-    artifactRoot: path.join(root, "runs"),
-    runId: "post-merge-tag-lookup-failed",
-    now: () => new Date("2026-07-27T22:46:00+09:00"),
-    postMergeDependencies: {
-      git,
-      now: () => new Date("2026-07-27T22:46:00+09:00"),
-    },
-  });
+  ], dependenciesFor(tagFailure.repository, "post-merge-tag-lookup-failed"));
   assert.equal(lookupFailed.status, "success");
   assert.equal(lookupFailed.result.final_branch, "devel-tiga0727weg");
   assert.equal(lookupFailed.result.tag_status, "lookup-failed");
@@ -1077,23 +1074,12 @@ test("post-merge workflow keeps merge confirmation and apply inside one fixed ru
   assert.match(lookupFailed.human_output, /^Tag status: lookup-failed$/m);
   assert.match(lookupFailed.human_output, /^Final branch: devel-tiga0727weg$/m);
 
-  branch = "tiga0501xea-done";
-  head = "a".repeat(40);
-  tagLookupResult = { ok: true, out: `${baseHead}\trefs/tags/v20260727c` };
   const legacyDoneBranch = await runWorkflow("repository.post-merge.next-work", [
-    "--repo", root,
+    "--repo", legacy.repository,
+    "--published-head", legacy.head,
     "--confirmed-merged",
     "--apply",
-  ], {
-    cwd: root,
-    artifactRoot: path.join(root, "runs"),
-    runId: "post-merge-legacy-done-branch",
-    now: () => new Date("2026-07-27T22:46:00+09:00"),
-    postMergeDependencies: {
-      git,
-      now: () => new Date("2026-07-27T22:46:00+09:00"),
-    },
-  });
+  ], dependenciesFor(legacy.repository, "post-merge-legacy-done-branch"));
   assert.equal(legacyDoneBranch.status, "success");
   assert.equal(legacyDoneBranch.result.base, "devel");
   assert.equal(legacyDoneBranch.result.final_branch, "devel-tiga0727weg");

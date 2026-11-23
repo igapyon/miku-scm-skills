@@ -105,6 +105,9 @@ paths and stop on any resulting conflict instead of inferring that relocation.
 
 ## Done branch exception
 
+Local Git replacement refs or a graft file prevent the next-work transition.
+Use `miku-scm recover done` to preserve the work locally.
+
 Only on `-done`, invoke the tracked `miku-scm-sync-merge-check.mjs` read-only
 helper. Its complete GitHub command surface is:
 
@@ -147,9 +150,11 @@ codes, without printing response bodies or credentials. See the
 
 ### Human confirmation when PR reads are unavailable
 
-The helper saves `awaiting-merge-confirmation` and returns `not-applied` with
+If the freshly fetched base contains the frozen branch's current HEAD, the
+helper saves `awaiting-merge-confirmation` and returns `not-applied` with
 `confirmation_required: true`, the operation ID and the exact repository,
-published branch, HEAD and base to confirm. Display its question and wait for
+published branch, HEAD and base to confirm. When the base lacks that HEAD,
+use exact PR verification or preserve the work locally with `miku-scm recover done`. Display its question and wait for
 the user to confirm that a PR containing that HEAD was merged into that base.
 The original `sync pull` instruction is not a merge report. A clear affirmative
 reply in the same conversation authorizes:
@@ -160,7 +165,9 @@ repository.sync.pull --repo <same-path> --confirm-merged <saved-operation-id> --
 
 The Agent supplies the saved ID; the user need not copy it. A `github merge done`
 reply answering this pending question continues this sync path, including staged
-carryover. Do not route that reply through the legacy unstaged-only helper.
+carryover. Do not route it through the separate compatibility entry
+`repository.post-merge.next-work`, which requires its own published HEAD and
+merge confirmation.
 This is a human attestation; it is recorded and displayed as such, never as an
 API-verified PR. No new PR reads or API authentication are needed to continue.
 Verify the saved branch, HEAD, index, working contents, untracked files and remote
@@ -179,6 +186,9 @@ Require exact head repository/ref/SHA and base repository/ref, then detailed
 and rebase merges and deleted remote work branches. The suffix alone is not
 merge evidence. Create one next branch from the pinned fetched base through
 the shared next-work core, then carry work over; never replay the old PR.
+If the current JST minute's branch name or its `-done` counterpart conflicts
+with an existing Git ref, including an ancestor or descendant, use the first
+free name from the following minutes.
 Prepare the branch and its configuration before checkout so post-checkout
 hooks see the final tracking configuration. Git's `branch.autoSetupMerge` and
 `branch.autoSetupRebase` settings are preserved. Under the normal tracking
@@ -188,9 +198,12 @@ branch creation and the created branch's SHA before checkout; a moved ref
 stops the transition before switching to an unreviewed commit.
 An already recorded transition cannot create more next branches.
 
-This is a narrow frozen-branch exception authorized by `sync pull`. The
-standalone `github merge done` route keeps its human confirmation and staged
-change blocker. Never synthesize its `--confirmed-merged` flag.
+Standalone `github merge done` on a frozen branch uses the same sync flow.
+The direct `repository.post-merge.next-work` compatibility entry delegates
+stash, branch transition and recovery to the shared sync-pull operation. It
+requires both a human merge report and Git ancestry, and stops before backup or
+stash when changes are staged or ignored checkout paths collide. Stopped work
+continues with the returned operation ID through `miku-scm sync pull --resume`.
 Successful push renames only the local branch with `-done`; PR lookup uses
 the published branch name without that suffix. An open PR, an unmerged closed
 PR, or unavailable matching evidence stops before stash or branch creation.
@@ -210,6 +223,8 @@ Up-to-date, fast-forward, rebase and incomplete results show
 
 Report the retained operation, branch, backup and exact stash. The Agent
 carries the returned operation ID; the user normally need not copy it.
+A lock release warning accompanies the operation result. Check the lock
+before starting another sync.
 Only an explicit recovery request authorizes one of:
 
 ```text
@@ -223,8 +238,9 @@ repository.sync.pull --repo <path> --abort <operation-id> --apply
 For an interrupted next-work transition with a complete preparation receipt,
 resume verifies and switches to the same prepared branch without creating
 another branch, fetching or stashing again. If preparation has no complete
-receipt, or a checkout/hook outcome is unconfirmed, inspect the saved branch,
-pinned HEAD, tracking configuration and hook outcome first. Only an explicit
+receipt, its upstream differs from the saved value, or checkout/hook outcome
+is unconfirmed, inspect the saved branch, pinned HEAD, tracking configuration
+and hook outcome first. Only an explicit
 confirmation of that resolution authorizes `--resolved-next-work`. When
 already on the verified next branch, this continues without rerunning its hook.
 This flag does not confirm a carryover resolution; that still requires

@@ -2,22 +2,32 @@ import { access, readFile, realpath } from "node:fs/promises";
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { prepareWritingEvidence } from "./miku-scm-writing-prepare.mjs";
+import { MAX_DETAIL_PATHS, readSyncPushExcerpts, SYNC_PUSH_EVIDENCE_PROFILE } from "./miku-scm-sync-push-evidence.mjs";
 import { runWorkCommit } from "./work-commit.mjs";
 import { runPublish } from "./post-recommit-publish.mjs";
 import { runRecommitPush } from "./pr-recommit-push.mjs";
 import { workflowContractById } from "./miku-scm-workflow-contract-lock.mjs";
 import { platformWarnings } from "./miku-scm-command-runner.mjs";
+import { assertNotDoneRescueBranch } from "./miku-scm-rescue-branch.mjs";
 import { ancestor, assertIdle, assertRemote, assertSnapshot, beforeAction, branch, checkPending, checkedId, failure, fetchBase, hash, head, loadOperation, newId, newOperation, openSync, operationPath, pendingOperations, readJson, remoteState, requireFetchBranch, resolveBase, saveOperation, snapshot, writeJson } from "./miku-scm-sync-state.mjs";
 
 export function parseArgs(mode, argv, cwd = process.cwd()) {
   const o = { repo: cwd, remote: "origin", base: "", message: "", allowSensitivePaths: [], operation: "", resume: "", cancel: "", recover: "", expectedPlanSha256: "", prDraft: "", expectedDraftSha256: "", apply: false, help: false };
+  const readonly = mode === "draft.prepare" || mode === "evidence.read";
+  if (mode === "evidence.read") o.paths = [];
   const common = { "--repo": "repo" };
   const fields = mode === "prepare" ? { ...common, "--remote": "remote", "--base": "base", "--message": "message", "--resume": "resume", "--cancel": "cancel", "--recover": "recover" }
-    : mode === "draft.prepare" ? { ...common, "--operation": "operation", "--expected-plan-sha256": "expectedPlanSha256" }
+    : readonly ? { ...common, "--operation": "operation", "--expected-plan-sha256": "expectedPlanSha256" }
       : { ...common, "--operation": "operation", "--expected-plan-sha256": "expectedPlanSha256", "--pr-draft": "prDraft", "--expected-draft-sha256": "expectedDraftSha256" };
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === "--path" && mode === "evidence.read") {
+      const value = argv[++i];
+      if (!value) throw new Error("Missing value: --path");
+      o.paths.push(value);
+      continue;
+    }
     if (a === "--allow-sensitive-path" && mode === "prepare") {
       const value = argv[++i] ?? "";
       if (!value || path.isAbsolute(value) || value.split(/[\\/]/).includes("..") || /[\r\n\0]/.test(value)) throw new Error("--allow-sensitive-path must name one reviewed repository-relative path");
@@ -32,16 +42,19 @@ export function parseArgs(mode, argv, cwd = process.cwd()) {
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (o.help) return o;
-  if (!o.repo || (mode !== "draft.prepare" && !o.apply) || (mode === "draft.prepare" && o.apply)) throw new Error(mode === "draft.prepare" ? "sync push draft preparation is read-only and rejects --apply" : "sync push requires --apply");
+  if (!o.repo || o.apply === readonly) throw new Error(readonly ? "sync push read-only workflows reject --apply" : "sync push requires --apply");
   if ([o.resume, o.cancel, o.recover].filter(Boolean).length > 1) throw new Error("--resume, --cancel and --recover are exclusive");
   if ((o.resume || o.cancel) && o.allowSensitivePaths.length) throw new Error("Recovery uses the saved push options");
   if ((o.resume || o.cancel) && ["--remote", "--base", "--message"].some((v) => seen.has(v))) throw new Error("Recovery uses the saved push options");
   if (o.recover && ["--remote", "--base"].some((v) => seen.has(v))) throw new Error("Partial recovery uses the saved remote and base");
   if (o.recover) checkedId(o.recover);
-  if (mode === "apply" || mode === "draft.prepare") {
+  if (mode === "apply" || readonly) {
     checkedId(o.operation);
     if (!/^[0-9a-f]{64}$/.test(o.expectedPlanSha256)) throw new Error("Push workflow requires the exact plan SHA-256");
     if (mode === "apply" && (!o.prDraft || !/^[0-9a-f]{64}$/.test(o.expectedDraftSha256))) throw new Error("Push apply requires the exact draft SHA-256");
+  }
+  if (mode === "evidence.read" && (!o.paths.length || o.paths.length > MAX_DETAIL_PATHS)) {
+    throw new Error(`Supply one to ${MAX_DETAIL_PATHS} --path arguments`);
   }
   return o;
 }
@@ -124,7 +137,14 @@ async function preparedResult(ctx, op) {
   const plan = await readPlan(ctx, op);
   if (!plan || hash(plan) !== op.plan_sha256) throw new Error("Prepared push plan changed");
   const existingDraft = await pathExists(path.resolve(ctx.root, plan.draft_path)) ? hash(await draftBytes(ctx, plan.draft_path)) : null;
-  return { status: "prepared", warnings: [...new Set([...(op.warnings ?? []), ...ctx.warnings])], operation_id: op.id, plan_sha256: op.plan_sha256, commit: op.commit, head: plan.snapshot.head, base: plan.base.name, base_commit: plan.base_sha, evidence: plan.evidence, suggested_draft_path: plan.draft_path, ...(existingDraft ? { existing_draft_sha256: existingDraft } : {}), ...(op.continuation ? { continuation: op.continuation } : {}), mutation_invoked: op.mutation_invoked };
+  const commit = { status: op.commit.status };
+  if (op.commit.result) Object.assign(commit, {
+    path_count: op.commit.result.paths?.length,
+    checks: op.commit.result.checks,
+    version_notice: op.commit.result.version_notice,
+    warnings: op.commit.result.warnings,
+  });
+  return { status: "prepared", warnings: [...new Set([...(op.warnings ?? []), ...ctx.warnings])], operation_id: op.id, plan_sha256: op.plan_sha256, commit, head: plan.snapshot.head, base: plan.base.name, base_commit: plan.base_sha, evidence: plan.evidence, suggested_draft_path: plan.draft_path, ...(existingDraft ? { existing_draft_sha256: existingDraft } : {}), ...(op.continuation ? { continuation: op.continuation } : {}), mutation_invoked: op.mutation_invoked };
 }
 
 function pendingStop(ctx, op, detail) {
@@ -199,6 +219,7 @@ export async function prepareSyncPush(options, dependencies = {}) {
   let continuation = "";
   try {
     runtimePlatform(dependencies, ctx);
+    if (!options.cancel) assertNotDoneRescueBranch(ctx.root, branch(ctx), ctx.git);
     if (ctx.recoveredInitialization && options.cancel) return { status: "cancelled", operation_id: id, reason: "Cancelled interrupted sync initialization; start a new sync", final_branch: branch(ctx), head: head(ctx), mutation_invoked: false };
     if (options.recover) {
       op = await loadOperation(ctx, options.recover);
@@ -230,6 +251,7 @@ export async function prepareSyncPush(options, dependencies = {}) {
       assertRemote(ctx, op.remote, true);
       const plan = await readPlan(ctx, op);
       if (!plan) throw new Error("No completed evidence was saved; cancel this unapplied preparation before preparing again");
+      if (plan.contract !== pushContract()) throw new Error("Prepared workflow contract changed; repeat miku-scm sync push to prepare fresh evidence");
       await assertSnapshot(ctx, plan.snapshot);
       if (ctx.git(ctx.root, ["rev-parse", op.base.ref]).out !== op.base_sha) throw new Error("Prepared base changed; cancel or sync pull before preparing again");
       return await preparedResult(ctx, op);
@@ -245,6 +267,7 @@ export async function prepareSyncPush(options, dependencies = {}) {
     await checkPending(ctx);
     await assertIdle(ctx);
     const initial = await snapshot(ctx);
+    assertNotDoneRescueBranch(ctx.root, initial.branch, ctx.git);
     if (initial.branch.endsWith("-done")) throw new Error("Sync push cannot commit or publish a frozen done branch; use sync pull after merge");
     const remote = remoteState(ctx, effectiveOptions.remote, true);
     const base = resolveBase(ctx, effectiveOptions.remote, effectiveOptions.base);
@@ -300,7 +323,9 @@ export async function prepareSyncPush(options, dependencies = {}) {
       await saveOperation(ctx, op);
       return { status: "up-to-date", warnings: ctx.warnings, commit: op.commit, operation_id: op.id, head: current.head, mutation_invoked: op.mutation_invoked };
     }
-    const { evidence_sha256: _previousEvidenceDigest, ...evidenceFields } = await (dependencies.prepareWriting ?? prepareWritingEvidence)({ mode: "pr", repo: ctx.root, target: `${op.base_sha}..${current.head}` }, { ...dependencies.writingDependencies, now: dependencies.now });
+    const { evidence_sha256: _previousEvidenceDigest, ...evidenceFields } = await (dependencies.prepareWriting ?? prepareWritingEvidence)({
+      mode: "pr", repo: ctx.root, target: `${op.base_sha}..${current.head}`, evidenceProfile: SYNC_PUSH_EVIDENCE_PROFILE,
+    }, { ...dependencies.writingDependencies, now: dependencies.now });
     // Fresh preparations must not overwrite a draft retained from the same minute.
     const evidence = { ...evidenceFields, suggested_draft_path: evidenceFields.suggested_draft_path.replace(/\.md$/, `-${id}.md`) };
     evidence.evidence_sha256 = hash(evidence);
@@ -330,9 +355,10 @@ async function draftBytes(ctx, relative) {
   return bytes;
 }
 
-export async function prepareSyncPushDraft(options, dependencies = {}) {
-  const { ctx, release } = await openSync(options.repo, dependencies, options.operation);
+async function withPreparedPush(options, dependencies, inspect) {
+  const { ctx, release } = await openSync(options.repo, dependencies, options.operation, false, { existingStorageOnly: true });
   try {
+    assertNotDoneRescueBranch(ctx.root, branch(ctx), ctx.git);
     const op = await loadOperation(ctx, options.operation);
     if (op.type !== "push" || op.status !== "prepared" || op.apply_started
       || op.root !== ctx.root || op.common !== ctx.common) throw new Error("This sync push is not an unused prepared operation for this repository");
@@ -341,6 +367,33 @@ export async function prepareSyncPushDraft(options, dependencies = {}) {
       || plan.operation !== op.id || plan.root !== ctx.root || plan.common !== ctx.common || plan.contract !== pushContract()) {
       throw new Error("Push plan digest, identity or workflow contract changed");
     }
+    assertNotDoneRescueBranch(ctx.root, plan.snapshot.branch, ctx.git);
+    return await inspect(ctx, op, plan);
+  } finally { await release(); }
+}
+
+export async function readSyncPushEvidence(options, dependencies = {}) {
+  return withPreparedPush(options, dependencies, async (ctx, op, plan) => {
+    if (branch(ctx) !== plan.snapshot.branch || head(ctx) !== plan.snapshot.head
+      || ctx.git(ctx.root, ["rev-parse", "--verify", plan.base.ref]).out !== plan.base_sha) {
+      throw new Error("Prepared branch, HEAD or base changed; repeat miku-scm sync push to check the current work");
+    }
+    const range = `${plan.base_sha}..${plan.snapshot.head}`;
+    const excerpts = await readSyncPushExcerpts(ctx.root, range, options.paths, { git: ctx.git, read: dependencies.writingDependencies?.readPatch });
+    return {
+      status: "evidence-ready",
+      operation_id: op.id,
+      plan_sha256: op.plan_sha256,
+      base_commit: plan.base_sha,
+      head: plan.snapshot.head,
+      patch_excerpts: excerpts,
+      mutation_invoked: false,
+    };
+  });
+}
+
+export async function prepareSyncPushDraft(options, dependencies = {}) {
+  return withPreparedPush(options, dependencies, async (ctx, op, plan) => {
     const bytes = await draftBytes(ctx, plan.draft_path);
     const draftSha256 = hash(bytes);
     return {
@@ -356,7 +409,7 @@ export async function prepareSyncPushDraft(options, dependencies = {}) {
         "--expected-draft-sha256", draftSha256, "--apply"],
       mutation_invoked: false,
     };
-  } finally { await release(); }
+  });
 }
 
 export async function applySyncPush(options, dependencies = {}) {
@@ -374,11 +427,13 @@ export async function applySyncPush(options, dependencies = {}) {
   };
   try {
     const platform = runtimePlatform(dependencies, ctx);
+    assertNotDoneRescueBranch(ctx.root, branch(ctx), ctx.git);
     op = await loadOperation(ctx, options.operation);
     if (op.type !== "push" || op.status !== "prepared" || op.apply_started) throw new Error("This push plan is not available for apply; it may be consumed, cancelled or superseded");
     await checkPending(ctx, { except: op.id });
     plan = await readPlan(ctx, op);
     if (!plan || hash(plan) !== options.expectedPlanSha256 || op.plan_sha256 !== options.expectedPlanSha256 || plan.operation !== op.id || plan.root !== ctx.root || plan.common !== ctx.common || plan.contract !== pushContract()) throw new Error("Push plan digest, identity or workflow contract changed");
+    assertNotDoneRescueBranch(ctx.root, plan.snapshot.branch, ctx.git);
     if (options.prDraft !== plan.draft_path) throw new Error("PR draft is not bound to this prepared evidence");
     const checkDraft = async () => { if (hash(await draftBytes(ctx, options.prDraft)) !== options.expectedDraftSha256) throw new Error("PR draft SHA-256 changed"); };
     await assertIdle(ctx);

@@ -1,10 +1,12 @@
 import { workflowCliContractById } from "./miku-scm-cli-contracts.mjs";
 
-export const WORKFLOW_MANIFEST_VERSION = "miku-scm.workflow-manifest/v2";
+export const WORKFLOW_MANIFEST_VERSION = "miku-scm.workflow-manifest/v3";
 export const WORKFLOW_CONTRACT_VERSION = 1;
 const ISSUE_APPROVAL_CONTRACT_VERSION = 2;
-const SYNC_SOURCES = ["miku-scm-sync-state.mjs", "miku-scm-sync-worktree.mjs", "miku-scm-sync-merge-check.mjs", "post-merge-next-work.mjs", "miku-scm-command-runner.mjs", "miku-scm-jst-time.mjs", "miku-scm-repository.mjs", "miku-scm-operational-storage.mjs", "miku-scm-package-version-policy.mjs"];
-const SYNC_PUSH_SOURCES = [...SYNC_SOURCES, "work-commit.mjs", "miku-scm-fixed-command-runner.mjs", "miku-scm-operational-path.mjs", "miku-scm-writing-prepare.mjs", "pr-soft-reset-recommit-preflight.mjs", "pr-recommit-push.mjs", "post-recommit-publish.mjs"];
+const RESCUE_BRANCH_SOURCE = "miku-scm-rescue-branch.mjs";
+const WORKTREE_EVIDENCE = "miku-scm-worktree-evidence.mjs";
+const SYNC_SOURCES = ["miku-scm-sync-state.mjs", "miku-scm-sync-worktree.mjs", "miku-scm-sync-merge-check.mjs", "miku-scm-next-work.mjs", "miku-scm-command-runner.mjs", "miku-scm-jst-time.mjs", "miku-scm-repository.mjs", "miku-scm-operational-storage.mjs", "miku-scm-package-version-policy.mjs", RESCUE_BRANCH_SOURCE, WORKTREE_EVIDENCE];
+const SYNC_PUSH_SOURCES = [...SYNC_SOURCES, "work-commit.mjs", "miku-scm-fixed-command-runner.mjs", "miku-scm-operational-path.mjs", "miku-scm-writing-prepare.mjs", "miku-scm-sync-push-evidence.mjs", "pr-soft-reset-recommit-preflight.mjs", "pr-recommit-push.mjs", "post-recommit-publish.mjs"];
 
 const WORKFLOW_DEFINITIONS = [
   {
@@ -232,8 +234,8 @@ const WORKFLOW_DEFINITIONS = [
   },
   {
     id: "repository.sync.pull",
-    contract_version: 4,
-    triggers: ["miku-scm sync pull", "sync pull"],
+    contract_version: 5,
+    triggers: ["miku-scm sync pull", "sync pull", "miku-scm github merge done on a frozen branch"],
     required_parameters: ["repository", "explicit_sync_pull_request"],
     mutation_level: "local",
     approval_gate: "apply",
@@ -243,7 +245,7 @@ const WORKFLOW_DEFINITIONS = [
   },
   {
     id: "repository.sync.push.prepare",
-    contract_version: 5,
+    contract_version: 6,
     triggers: ["miku-scm sync push", "sync push"],
     required_parameters: ["repository", "explicit_sync_push_request"],
     mutation_level: "local",
@@ -275,13 +277,34 @@ const WORKFLOW_DEFINITIONS = [
     contract_runtime_sources: SYNC_PUSH_SOURCES,
   },
   {
+    id: "repository.sync.push.evidence.read",
+    triggers: ["Read additional PR evidence for the prepared sync push"],
+    required_parameters: ["repository", "operation", "plan_digest", "changed_paths"],
+    mutation_level: "readonly",
+    approval_gate: "preflight",
+    runner_entry: "sync-push.mjs",
+    references: ["sync-push.md", "deterministic-workflow-runner.md"],
+    contract_runtime_sources: SYNC_PUSH_SOURCES,
+  },
+  {
     id: "repository.post-merge.next-work",
-    triggers: ["GitHub merge done", "PRマージ完了", "次作業branch作成"],
-    required_parameters: ["repository", "confirmed_merge"],
+    contract_version: 4,
+    triggers: ["Explicit direct post-merge helper request with the verified PR head"],
+    required_parameters: ["repository", "published_head", "confirmed_merge"],
     mutation_level: "local",
     approval_gate: "apply",
     runner_entry: "post-merge-next-work.mjs",
-    references: ["scm-rules.md", "github-release-tag-handoff.md", "deterministic-workflow-runner.md"],
+    references: ["scm-rules.md", "sync-pull.md", "github-release-tag-handoff.md", "deterministic-workflow-runner.md"],
+  },
+  {
+    id: "repository.done.recover",
+    contract_version: 3,
+    triggers: ["miku-scm recover done", "-done branch recovery"],
+    required_parameters: ["repository", "current_done_branch", "apply"],
+    mutation_level: "local",
+    approval_gate: "apply",
+    runner_entry: "done-recovery.mjs",
+    references: ["done-recovery.md", "deterministic-workflow-runner.md"],
   },
   {
     id: "work.commit",
@@ -417,7 +440,8 @@ const CONTRACT_TEST_BY_RUNNER = Object.freeze({
   "github-issue-close.mjs": "github-issue-close.test.mjs",
   "miku-scm-handoff.mjs": "miku-scm-handoff.test.mjs",
   "repository-maintenance.mjs": "repository-maintenance.test.mjs",
-  "post-merge-next-work.mjs": "post-recommit-publish.test.mjs",
+  "post-merge-next-work.mjs": "post-merge-next-work.test.mjs",
+  "done-recovery.mjs": "done-recovery.test.mjs",
   "work-commit.mjs": "work-commit.test.mjs",
   "post-recommit-publish.mjs": "post-recommit-publish.test.mjs",
   "pr-soft-reset-recommit-preflight.mjs": "miku-scm-recommit.test.mjs",
@@ -445,9 +469,12 @@ const SUPPORT_SOURCES = {
   "github-issue-update.mjs": ["miku-scm-draft.mjs", "miku-scm-jst-time.mjs"],
   "github-issue-comment.mjs": ["miku-scm-draft.mjs", "miku-scm-jst-time.mjs"],
   "work-commit.mjs": ["miku-scm-operational-storage.mjs", "miku-scm-package-version-policy.mjs"],
-  "post-merge-next-work.mjs": ["miku-scm-package-version-policy.mjs"],
-  "post-recommit-publish.mjs": ["miku-scm-command-runner.mjs", "miku-scm-package-version-policy.mjs"],
-  "pr-recommit-push.mjs": ["miku-scm-command-runner.mjs", "post-recommit-publish.mjs"],
+  "post-merge-next-work.mjs": ["sync-pull.mjs", ...SYNC_SOURCES],
+  "done-recovery.mjs": ["miku-scm-sync-state.mjs", "miku-scm-repository.mjs", "miku-scm-operational-storage.mjs", RESCUE_BRANCH_SOURCE, WORKTREE_EVIDENCE],
+  "post-recommit-publish.mjs": ["miku-scm-command-runner.mjs", "miku-scm-package-version-policy.mjs", RESCUE_BRANCH_SOURCE, WORKTREE_EVIDENCE],
+  "pr-soft-reset-recommit-preflight.mjs": [RESCUE_BRANCH_SOURCE, WORKTREE_EVIDENCE],
+  "pr-recommit-push.mjs": ["miku-scm-command-runner.mjs", "post-recommit-publish.mjs", "pr-soft-reset-recommit-preflight.mjs", RESCUE_BRANCH_SOURCE, WORKTREE_EVIDENCE],
+  "miku-scm-writing-prepare.mjs": ["miku-scm-sync-push-evidence.mjs"],
 };
 
 export const WORKFLOW_MANIFEST = Object.freeze(WORKFLOW_DEFINITIONS.map((entry) => Object.freeze({
@@ -470,6 +497,8 @@ export const WORKFLOW_MANIFEST = Object.freeze(WORKFLOW_DEFINITIONS.map((entry) 
       ? ["runtime-sync-push.md"]
       : entry.id === "repository.post-merge.next-work"
         ? ["runtime-post-merge.md"]
+        : entry.id === "repository.done.recover"
+          ? ["runtime-done-recovery.md"]
         : entry.id.startsWith("github.issue.") && entry.id !== "github.issue.read"
           ? ["runtime-issue-approval.md"] : [])),
   design_references: Object.freeze([...entry.references]),

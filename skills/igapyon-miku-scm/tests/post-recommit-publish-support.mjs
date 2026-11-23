@@ -54,7 +54,7 @@ export async function mergedScenario(t) {
 
 
 export function nextWorkOptions(state) {
-  return { repo: state.repo, remote: "origin", base: "devel", confirmedMerged: true, apply: true };
+  return { repo: state.repo, remote: "origin", base: "devel", publishedHead: state.expectedHead, confirmedMerged: true, apply: true };
 }
 
 

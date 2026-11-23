@@ -8,6 +8,7 @@ import { fixture } from "./sync-fixture.mjs";
 import { draft, preflightPartial } from "./sync-push-support.mjs";
 import { createGitRunner } from "../scripts/post-recommit-publish.mjs";
 import { syncGit } from "../scripts/miku-scm-sync-state.mjs";
+import { runWorkflow } from "../scripts/miku-scm-run.mjs";
 
 for (const change of ["draft", "plan", "head", "push-url", "fetch-refspec", "tag-policy"]) test(`sync push rejects changed ${change} before recommit`, async (t) => {
   const f = await fixture(t); await f.commit("own.txt", "pending\n"); const p = await prepareSyncPush(f.options); const options = await draft(f, p);
@@ -25,6 +26,29 @@ for (const stop of ["not-applied", "partial", "conflict"]) test(`sync push does 
   const f = await fixture(t); await f.write("own.txt", "work\n"); let evidence = 0;
   const r = await prepareSyncPush(f.options, { workCommit: async () => ({ status: stop, mutation_invoked: stop === "partial", reason: "fixed stop" }), prepareWriting: async () => { evidence++; throw new Error("must not draft"); } });
   assert.equal(r.status, stop, JSON.stringify(r)); assert.equal(evidence, 0); assert.equal(r.stage, "work-commit");
+});
+
+test("sync push retains its operation ID after a local commit and an evidence failure", async (t) => {
+  const f = await fixture(t);
+  await f.write("own.txt", "local work\n");
+  const stopped = await runWorkflow("repository.sync.push.prepare", [
+    "--repo", f.repo, "--message", "Add local work", "--apply",
+  ], {
+    cwd: f.repo, artifactRoot: path.join(f.directory, "runs"),
+    syncPushDependencies: {
+      prepareWriting: async () => { throw new Error("Injected evidence write failure"); },
+    },
+  });
+  assert.equal(stopped.status, "partial", JSON.stringify(stopped));
+  assert.equal(stopped.mutation_invoked, true);
+  const id = stopped.result.operation_id;
+  assert.ok(id);
+  assert.match(stopped.human_output, new RegExp(`Recovery operation: ${id}`));
+  assert.doesNotMatch(stopped.result.next_action, /sync pull/);
+  const saved = await loadOperation(await context(f.repo), id);
+  assert.equal(saved.status, "partial");
+  assert.equal(saved.type, "push");
+  assert.equal(f.git(["show", "HEAD:own.txt"]), "local work");
 });
 
 test("sync push can restart preparation after consent for the displayed sensitive paths", async (t) => {

@@ -2,6 +2,8 @@
 
 Run only for an explicit `miku-scm sync push` request. One request authorizes
 the complete bounded sequence below; do not ask between successful steps.
+For `*-done` or `rescue/done/*`, follow the
+[frozen branch procedure](runtime-done-recovery.md) before preparing a push.
 
 1. Run `repository.sync.push.prepare --apply`. It may commit all ordinary
    non-ignored staged, unstaged and untracked work in the target worktree.
@@ -10,8 +12,12 @@ the complete bounded sequence below; do not ask between successful steps.
    `--allow-sensitive-path` per agreed path when preparing again. A frozen
    `-done` branch stops. Only `prepared` continues. `up-to-date` is complete;
    all other states stop.
-2. Draft once from that result's exact evidence and writing contract. Save at
-   its suggested path; review an existing draft against that same evidence.
+2. Use the result's bounded evidence and writing contract. If a material change
+   needs more detail, use one JSON `repository.sync.push.evidence.read` call
+   with `--repo`, `--operation`, `--expected-plan-sha256` and up to four literal
+   `--path` arguments. Use that same preparation's IDs and digests. Draft once
+   and save at the suggested path. Review an existing draft against the same
+   evidence. Omit details you cannot substantiate.
 3. Run read-only `repository.sync.push.draft.prepare` with the same operation
    and plan digest. It returns the verified draft byte digest and the complete
    `repository.sync.push.apply` argument array. Do not edit or substitute paths.

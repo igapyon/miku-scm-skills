@@ -16,6 +16,9 @@ The default remote is `origin`; shared-base selection follows
 [sync-pull.md](sync-pull.md#requirements-and-base-selection). Require a single
 fetch URL and a single push URL that identify the same repository. A local
 `-done` branch is frozen and cannot start this operation.
+A `rescue/done/*` branch or a branch identified by a retained v1 recovery
+journal must stay local. Sync push blocks its preparation and apply.
+Integrate the reviewed work on a separate work branch first.
 
 Fetch honors the remote's branch refspecs and tag settings under the
 [pull mapping rules](sync-pull.md#requirements-and-base-selection). Both the
@@ -44,9 +47,14 @@ recommit, push or local `-done` rename.
    the same message rules as `work.commit`.
 2. Stop on any result other than `prepared`; `up-to-date` needs no draft or
    publication. For `prepared`, retain and verify the exact suggested draft when
-   `existing_draft_sha256` is supplied. Otherwise compose once from its returned
-   `evidence` and `writing_contract`. Save at `suggested_draft_path` and compute
-   its byte SHA-256. An older draft from a superseded plan remains unbound.
+   `existing_draft_sha256` is supplied. If the initial evidence leaves a
+   material change unclear, make one read-only JSON call to
+   `repository.sync.push.evidence.read --repo <path> --operation <id>
+   --expected-plan-sha256 <digest> --path <changed-path> [--path <changed-path> ...]`.
+   Request up to four literal paths in that call. Compose once from the evidence
+   and writing contract, including any supplemental excerpts. Save at
+   `suggested_draft_path` and compute its byte SHA-256. An older draft from a
+   superseded plan remains unbound.
 3. In the same requested workflow, invoke the read-only
    `repository.sync.push.draft.prepare` with this operation ID and plan digest.
    It reads the path only from the verified plan, hashes the exact contained
@@ -61,6 +69,26 @@ recommit, push or local `-done` rename.
 Successful steps need no extra conversational confirmation. The Agent writes
 PR prose; fixed helpers own all Git mechanics. A writing failure leaves the
 ordinary commit and prepared operation intact.
+
+### PR evidence
+
+The Node runner collects change statistics across the pinned base and HEAD.
+For up to 12 files and 400 changed lines, it tries one patch with a 24 KiB
+output limit and reuses that patch if it fits. Other changes get totals,
+representative paths grouped by directory, omitted counts, and short excerpts
+from up to six files. Generated or lock files and binary files count in the
+totals. The initial evidence is limited to 32 KiB of compact UTF-8 JSON,
+including subjects, paths, excerpts and the evidence digest. The outer
+runner envelope and formatted console output have their own overhead.
+Successful prepare returns the ordinary commit status, path count, checks
+and version notice. Its full commit result remains in the operation record.
+
+Supplemental evidence verifies the saved plan and its current branch, HEAD
+and local base ref. It validates each requested path against the saved range
+before reading its patch. Excerpts keep the existing redaction and stop
+at complete lines when an output limit is reached. The supplemental call
+does not update the plan or consume the operation. Git publication still
+uses the complete prepared tree.
 
 ## Reading the same execution result
 
@@ -151,6 +179,11 @@ distinct draft path. A `needs-sync-pull` operation is also superseded and checke
 again, so the result can name `miku-scm sync pull` instead of trapping later syncs.
 Old operation files and drafts are retained. Ambiguous operations, another
 branch/remote, corrupted evidence, or unknown publication outcomes remain blocked.
+
+An unapplied plan from the earlier evidence contract keeps its saved bytes,
+digest and draft. A plain `miku-scm sync push` prepares fresh evidence for the
+current contract. Explicit `--resume` reports the contract mismatch and directs
+the caller to that command.
 
 A single pending ordinary-commit failure may also be superseded by plain
 `sync push` when it stopped in `pre-commit-check` or `post-check-verify`, the

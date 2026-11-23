@@ -51,14 +51,14 @@ Do not apply Startup Work Branch Checkout for:
 - READONLY inspection, status, URL, tag, Release, asset, source, branch, Issue, or Actions queries
 - PR, Release, About, or Issue drafting that writes only under `workplace/` or `temp/`
 - standalone backup-branch creation
-- PR Soft Reset Recommit, post-recommit publication, sync pull/push, or Next Work Branch After PR Completion, which have their own branch rules
+- PR Soft Reset Recommit, post-recommit publication, sync pull/push, Next Work Branch After PR Completion, or local rescue, which have their own branch rules
 
 For these excluded workflows, keep the current branch checked out and apply only their operation-specific rules.
 
 Apply these rules in order:
 
 1. If the current branch ends in `-done`, do not create or switch branches under this section. Apply the Startup Frozen Branch Guard.
-2. If the current branch already matches the prescribed `<base>-tiga<MMDD><hour-code><minute-tens-code><minute-ones-code>` work-branch form, keep it checked out and continue.
+2. If the current branch matches the prescribed `<base>-tiga<MMDD><hour-code><minute-tens-code><minute-ones-code>` work-branch form, keep it checked out. Ordinary local work can also continue on a `rescue/done/*` branch.
 3. If the current branch is the base branch, normally `devel`, require a clean working tree. If it is not clean, stop before switching and report the paths that prevent startup preparation.
 4. Fetch the selected remote, normally `origin`, and compare the local base with its remote-tracking branch:
 
@@ -89,12 +89,12 @@ When the branch name ends in `-done`:
 - Treat it as frozen. Do not edit files, stage, commit, reset, recommit, or begin other new work on that branch.
 - Allow READONLY inspection and local GitHub draft writing under `workplace/` or `temp/` without asking whether the Pull Request was merged.
 - Treat `-done` only as evidence that the post-recommit publication flow probably reached its local rename. It does not prove that GitHub received a Pull Request or that the Pull Request was merged.
-- For an explicit `sync pull`, use the fixed [sync-pull.md](sync-pull.md) exception: verify the exact merged PR and fetched merge result before next-branch creation and carryover. If the helper returns `confirmation_required`, ask its saved merge question and continue the same sync only after the user's clear affirmative reply. Never infer that reply or override contradictory PR evidence. A normal non-`-done` branch does not run that PR check.
-- If the user's activating message explicitly reports that the Pull Request was merged, run the Next Work Branch After PR Completion workflow before doing any new work.
-- Outside that explicit sync pull exception, if merge completion has not been explicitly reported, stop only before a tracked-content or history-mutating workflow and ask `GitHubのPRはマージ済みですか？` Do not infer the answer from local Git state, remote branch state, or the `-done` suffix.
-- If the user says the Pull Request is not merged, keep the branch frozen. Allow read-only inspection and reporting, but require an explicitly documented recovery path before applying a correction.
+- Apply the [frozen branch procedure](runtime-done-recovery.md) before selecting a branch transition. Report the published and current HEAD if they differ. A dirty branch with uncertain publication evidence also needs review before a transition.
+- For an explicit `sync pull`, the fixed [sync-pull.md](sync-pull.md) helper verifies the exact merged PR and fetched merge result before next-branch creation. The Agent may continue a saved human confirmation only when the published HEAD matches the displayed target and the user confirms that PR and base.
+- A standalone report that the PR was merged authorizes the Next Work Branch After PR Completion workflow when the frozen branch check passes.
+- Offer explicit `miku-scm recover done` when work needs to move off this branch. It preserves the current HEAD and worktree on a local rescue branch, including while the PR is still open or unreachable.
 
-After the human confirms that the Pull Request was merged, treat that confirmation as authorization to refresh the base and create the next work branch under the documented workflow. Continue other requested work only after switching to that new branch.
+On `rescue/done/*`, follow the same reference before integration or publication.
 
 ## PR Soft Reset Recommit Delegation
 
@@ -192,13 +192,21 @@ Do not present local tag creation and push as the default continuation. Normally
 
 ## Next Work Branch After PR Completion
 
-The fixed helper `scripts/post-merge-next-work.mjs --confirmed-merged --apply` is the authoritative one-command implementation of this workflow. It requires a `-done` branch with no staged changes, fetches the base, performs the advisory exact-tag check, prepares the prescribed next branch and its tracking configuration before checkout, and verifies `0 0`. Git's `branch.autoSetupMerge` and `branch.autoSetupRebase` settings apply as when creating a branch directly from the shared remote ref; default settings track that base, while settings that disable tracking remain effective. The shared ref and new branch must match the pinned fetched SHA before checkout, so post-checkout hooks see the prepared configuration. It also carries remaining unstaged changes and untracked files through a retained stash as described below. Do not run a separate `git switch -c` when this helper is available.
+Use `miku-scm sync pull` for `*-done`, including a standalone `miku-scm github merge done`.
+It verifies an exact merged PR and carries staged, unstaged and untracked work.
+If PR reads are unavailable, it can continue after a human merge report only
+when the fetched base contains the current HEAD. If the merge cannot be
+verified, offer `miku-scm recover done` to preserve existing work locally.
 
-Run this workflow when the human explicitly reports that the Pull Request was merged. Treat a clear report such as `GitHubでマージした`, `PRをマージした`, or `マージ完了` as both confirmation of the merge and authorization to refresh the base and create the next work branch; do not require a second instruction to create it. Do not infer merge completion from local Git state, push output, or branch naming. Do not create the next work branch immediately after push or local `-done` rename while the PR is still open or its merge is unconfirmed.
+The direct `repository.post-merge.next-work` helper accepts a human merge
+report plus a full verified PR head via `--published-head`. It matches the
+current HEAD, requires that the fetched base includes it, and carries only
+unstaged changes and untracked files. Use the fixed workflow to prepare and
+track the next branch before checkout.
 
-Interpret a local branch name ending in `-done` only as an operational marker that the post-recommit publication sequence probably reached the rename performed after push. It does not prove that a Pull Request was created or merged. Never use `-done` alone to decide that PR work is complete; require the human's explicit statement that the PR was merged before running this workflow.
+Interpret a local branch name ending in `-done` only as an operational marker that the post-recommit publication sequence probably reached the rename performed after push. It does not prove that a Pull Request was created or merged. Verify completion through sync pull or the direct helper's ancestry and human confirmation checks.
 
-Treat a `-done` branch as frozen: do not add new work, stage changes, create commits, or run PR Soft Reset Recommit on it. After receiving the human's merge report, refresh the base, run the non-blocking recommended-tag check below, and create the next work branch before continuing. If the prior PR was not merged but a correction is required, stop and require an explicitly designed recovery path instead of silently continuing on `-done`.
+After the merge and HEAD check, refresh the base, run the non-blocking recommended-tag check below, and create the next work branch before continuing.
 
 ### Carry Remaining Unstaged Work To The Next Branch
 
@@ -290,32 +298,26 @@ Use these naming rules:
 
 For example, `devel-tiga0718tef` means base `devel`, user `tiga`, July 18, 19:45.
 
-After resolving a unique branch name from the current `Asia/Tokyo` (JST) date
-and time, fetch the base, perform the non-blocking recommended-tag check, then
-run:
+The fixed next-work workflow checks the name for the current `Asia/Tokyo`
+(JST) minute and its `-done` counterpart. If either name has a Git ref conflict,
+including an ancestor or descendant, it uses the first free name from the
+following minutes. After fetching the base and checking
+the recommended tag, it creates the branch as in this example:
 
 ```sh
 git switch -c devel-tiga0718tef origin/devel
 git status -sb
 ```
 
-Replace the example branch and base with the resolved values. Stop if the base fetch fails or if the resolved local branch already exists. Do not stop for a tag-check warning. Report the recommended tag check result, final branch, and status.
+Use the resolved branch and base in place of the example values. Stop if the
+base fetch fails or a concurrent creation takes the selected name. A tag-check
+warning allows the transition to continue. Report the recommended tag check
+result, final branch, and status.
 
-For follow-up work accidentally committed after the previous PR content, prefer this recovery shape after human authorization:
-
-1. Preserve the current `HEAD` with a local backup branch.
-2. Run `git fetch origin` and create a new work branch from the refreshed base.
-3. Carry forward only commits or patches that contain work not already merged into the base.
-4. Verify the resulting diff against the base before publication.
-5. Publish the new remote branch with `git push -u origin HEAD`; do not force-push it.
-
-For a hosted-CI correction before the prior PR is merged, use the same recovery
-shape after explicit human authorization. Preserve the frozen `-done` HEAD with
-a local backup, create the new work branch from the refreshed base, carry
-forward the reviewed unmerged PR content, then add only the CI correction.
-Never edit, recommit, or force-push the frozen branch or its already-published
-remote branch. Re-run the platform-independent regression tests before the new
-branch is published.
+For accidental commits or a hosted CI correction on `-done`, first preserve
+the work using the [local rescue procedure](runtime-done-recovery.md).
+Review any requested integration or correction against the exact prior PR and
+the intended base before preparing publication.
 
 ## Initial Safety Rules
 

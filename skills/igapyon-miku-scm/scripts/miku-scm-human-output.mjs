@@ -1,4 +1,4 @@
-export const HUMAN_OUTPUT_SCHEMA_VERSION = "miku-scm.human-output/v18";
+export const HUMAN_OUTPUT_SCHEMA_VERSION = "miku-scm.human-output/v20";
 
 const WORKFLOW_TITLES = Object.freeze({
   "repository.status": "Repository status",
@@ -23,8 +23,10 @@ const WORKFLOW_TITLES = Object.freeze({
   "repository.maintenance.plan": "Repository maintenance plan",
   "repository.maintenance.apply": "Repository maintenance",
   "repository.post-merge.next-work": "Post-merge next-work preparation",
+  "repository.done.recover": "Frozen -done branch recovery",
   "repository.sync.pull": "Sync pull",
   "repository.sync.push.prepare": "Sync push preparation",
+  "repository.sync.push.evidence.read": "Sync push additional PR evidence",
   "repository.sync.push.draft.prepare": "Sync push draft validation",
   "repository.sync.push.apply": "Sync push",
   "work.commit": "Work commit",
@@ -453,6 +455,7 @@ function appendCarryover(lines, carryover) {
 }
 
 function appendPostMergeNextWork(lines, result) {
+  if (result.operation_id) lines.push(`Operation: ${displayValue(result.operation_id)}`);
   lines.push(`Previous branch: ${displayValue(result.previous_branch)}`);
   lines.push(`Remote: ${displayValue(result.remote)}`);
   lines.push(`Base branch: ${displayValue(result.base)}`);
@@ -468,6 +471,21 @@ function appendPostMergeNextWork(lines, result) {
   if (result.carryover) appendCarryover(lines, result.carryover);
   lines.push(`Tag mutation: ${result.tag_mutation ? "yes" : "no"}`);
   lines.push(`Release mutation: ${result.release_mutation ? "yes" : "no"}`);
+}
+
+function appendDoneRecovery(lines, result) {
+  lines.push(`Previous branch: ${displayValue(result.previous_branch)}`);
+  lines.push(`Local rescue branch: ${displayValue(result.final_branch)}`);
+  lines.push(`Preserved HEAD: ${displayValue(result.head)}`);
+  lines.push(`Working tree: ${displayValue(result.working_tree)}`);
+}
+
+function appendDoneRecoveryFailure(lines, recovery) {
+  lines.push(`Previous branch: ${displayValue(recovery.previous_branch)}`);
+  lines.push(`Intended rescue branch: ${displayValue(recovery.next_branch)}`);
+  lines.push(`Final branch: ${displayValue(recovery.final_branch, "unknown")}`);
+  lines.push(`Current HEAD: ${displayValue(recovery.head, "unknown")}`);
+  if (recovery.next_action) lines.push(`Next action: ${displayValue(recovery.next_action)}`);
 }
 
 function appendWorkCommit(lines, result) {
@@ -580,6 +598,12 @@ export function renderHumanOutput({
       lines.push(`Next work branch: ${displayValue(error.recovery.next_branch)}`);
       lines.push(`Final branch: ${displayValue(error.recovery.final_branch, "unknown")}`);
       appendCarryover(lines, error.recovery);
+      if (error.recovery.operation_id) lines.push(`Recovery operation: ${displayValue(error.recovery.operation_id)}`);
+      if (error.recovery.next_action) lines.push(`Next action: ${displayValue(error.recovery.next_action)}`);
+      for (const warning of error.recovery.warnings ?? []) lines.push(`Warning: ${oneLine(warning)}`);
+    }
+    if (workflow === "repository.done.recover" && error.recovery) {
+      appendDoneRecoveryFailure(lines, error.recovery);
     }
     if (error.bad_argument) lines.push(`Bad argument: ${error.bad_argument}`);
     lines.push(`Mutation invoked: ${mutationInvoked === null ? "unknown" : mutationInvoked ? "yes" : "no"}`);
@@ -623,7 +647,10 @@ export function renderHumanOutput({
     }
     if (r.next_action) lines.push(`Next action: ${displayValue(r.next_action)}`);
     if (r.next_command) lines.push(`Next command: ${displayValue(r.next_command)}`);
-    if (["partial", "unresolved"].includes(r.status) && r.operation_id) lines.push(`Recovery operation: ${r.operation_id}`);
+    if (r.operation_id) {
+      if (["partial", "unresolved"].includes(r.status)) lines.push(`Recovery operation: ${r.operation_id}`);
+      else if (workflow === "repository.sync.pull") lines.push(`Operation: ${r.operation_id}`);
+    }
     if (r.status === "published") appendPublication(lines, r.publication ?? r);
     else if (r.publication) {
       lines.push(`Publication status: ${displayValue(r.publication.status)}`);
@@ -634,6 +661,8 @@ export function renderHumanOutput({
     appendRepositoryStatus(lines, result ?? {});
   } else if (workflow === "repository.post-merge.next-work") {
     appendPostMergeNextWork(lines, result ?? {});
+  } else if (workflow === "repository.done.recover") {
+    appendDoneRecovery(lines, result ?? {});
   } else if (workflow === "work.commit") {
     appendWorkCommit(lines, result ?? {});
   } else if (workflow === "github.issue.read") {

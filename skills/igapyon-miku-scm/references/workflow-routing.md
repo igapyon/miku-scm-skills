@@ -22,13 +22,20 @@ prose requests route first to the matching `writing.*.prepare` ID; generative
 drafting consumes its bounded evidence, and any later mutation returns to a
 mechanical preflight.
 
-Exact `sync pull` routes to `repository.sync.pull --apply`; its fixed helper
-alone chooses whether the current `-done` branch needs PR verification.
+For requests that edit, switch, synchronize or publish, apply the
+[frozen branch check](runtime-done-recovery.md) when the branch is `*-done` or
+`rescue/done/*`. An explicit `miku-scm recover done` uses that reference's
+local rescue procedure.
+
+After the branch check, exact `sync pull` routes to
+`repository.sync.pull --apply`; the fixed helper performs its own exact PR
+verification for `*-done`.
 If it returns `confirmation_required`, show its saved target and question and
 wait. A clear human merge report answering that question continues the same
 `repository.sync.pull --confirm-merged <saved-operation-id> --apply` workflow.
-This includes a `github merge done` reply to that question; retain staged work
-through the sync helper. Standalone `github merge done` keeps its original route.
+This includes a `github merge done` reply about the same published HEAD and
+base. Standalone `github merge done` starts the same `sync pull` workflow
+on a frozen branch.
 Exact `sync push` routes to `repository.sync.push.prepare --apply`, one
 Agent-authored draft from the returned evidence, then the read-only
 `repository.sync.push.draft.prepare` for that same operation and plan digest.

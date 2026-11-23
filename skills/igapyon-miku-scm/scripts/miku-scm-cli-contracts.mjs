@@ -320,6 +320,14 @@ export const WORKFLOW_CLI_CONTRACTS = Object.freeze({
     ["--operation", "<operation-id>", "--expected-plan-sha256", "<sha256>"],
     { network_access: "none", authentication: "none", operational_artifacts: ["workplace/miku-scm/sync"], notes: ["Read-only; derives the draft path only from the verified plan, checks contained nonempty draft bytes up to 1 MiB, and returns a workflow ID plus argv array. It does not modify the draft, publish, or consume the plan."] },
   ),
+  "repository.sync.push.evidence.read": contract(
+    "Read bounded patches for selected changed paths from a prepared sync push.",
+    [repoPath, option("--operation", "<operation-id>", "Exact unused prepared operation ID.", { required: true }),
+      option("--expected-plan-sha256", "<sha256>", "Exact prepare result plan digest.", { required: true }),
+      option("--path", "<repository-relative-path>", "Literal changed file from the prepared comparison.", { required: true, repeatable: true, maximum_occurrences: 4 })],
+    ["--operation", "<operation-id>", "--expected-plan-sha256", "<sha256>", "--path", "src/example.js"],
+    { network_access: "none", authentication: "none", operational_artifacts: ["workplace/miku-scm/sync"], notes: ["Use JSON output. Read at most four paths from the saved base and HEAD. Does not consume or update the prepared operation."] },
+  ),
   "repository.status": contract(
     "Inspect local branch, worktree, worktrees, and selected version files.",
     [
@@ -678,19 +686,30 @@ export const WORKFLOW_CLI_CONTRACTS = Object.freeze({
     },
   ),
   "repository.post-merge.next-work": contract(
-    "Refresh the merged base and create the next local work branch.",
+    "Use the shared sync-pull operation to verify the confirmed merge and create the next local work branch.",
     [
       repoPath,
       option("--remote", "<name>", "Git remote name.", { default: "origin" }),
       option("--base", "<branch>", "Base branch; inferred from the current done branch or remote HEAD when omitted."),
+      option("--published-head", "<full-object-id>", "Published PR head. It must match the current -done HEAD and be contained in the fetched base.", { required: true }),
       option("--confirmed-merged", "", "Confirm that the PR was merged.", { required: true }),
       apply,
     ],
-    ["--confirmed-merged", "--apply"],
+    ["--published-head", "<verified-published-head>", "--confirmed-merged", "--apply"],
     {
       network_access: "Git fetch and remote tag read",
       authentication: "existing Git authentication",
-      notes: ["Creates and switches to one local branch. This is an apply workflow despite its ID."],
+      notes: ["Compatibility entry for one shared sync-pull next-work operation. Staged changes and ignored checkout collisions stop before stash or branch creation. A stopped operation resumes with repository.sync.pull and its saved operation ID."],
+    },
+  ),
+  "repository.done.recover": contract(
+    "Switch from a frozen -done branch to a local rescue branch at the current HEAD.",
+    [repoPath, apply],
+    ["--apply"],
+    {
+      network_access: "none",
+      authentication: "none",
+      notes: ["Preserves the source branch, current HEAD, index and untracked files without reading worktree file contents. The reported working_tree state is unknown. Git hooks are disabled during inspection, switching and verification. The rescue branch is for local work. Integrate onto a separate verified work branch before syncing or publishing."],
     },
   ),
   "work.commit": contract(

@@ -2,7 +2,7 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { ORDINARY_PATHSPEC } from "./miku-scm-operational-storage.mjs";
 
 import path from "node:path";
-import { SHA, afterAction, beforeAction, branch, head, saveOperation, snapshot, zeros } from "./miku-scm-sync-state.mjs";
+import { SHA, afterAction, beforeAction, saveOperation, snapshot, zeros } from "./miku-scm-sync-state.mjs";
 
 // Exported for boundary tests; the workflow runner does not expose this helper.
 export function chunkIgnorePaths(paths, { maxPaths = 512, maxBytes = 256 * 1024 } = {}) {
@@ -198,5 +198,13 @@ export async function rebaseIdentity(ctx, op) {
 }
 
 export function verifyLocation(ctx, op, expectedHead) {
-  if (branch(ctx) !== (op.next_branch ?? op.original.branch) || (expectedHead && head(ctx) !== expectedHead)) throw new Error("Sync branch or HEAD changed");
+  const branchName = op.next_branch ?? op.original.branch;
+  const ref = `refs/heads/${branchName}`;
+  const row = ctx.git(ctx.root, ["for-each-ref", "--format=%(HEAD)%00%(refname)%00%(objectname)", "--", ref]).out;
+  const fields = row.split("\0");
+  const [current, observedRef, sha] = fields;
+  if (fields.length !== 3 || current !== "*" || observedRef !== ref || !SHA.test(sha) || (expectedHead && sha !== expectedHead)) {
+    throw new Error("Sync branch or HEAD changed");
+  }
+  return { branch: branchName, head: sha };
 }

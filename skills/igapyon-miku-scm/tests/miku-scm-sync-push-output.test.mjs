@@ -80,6 +80,14 @@ for (const format of ["human", "json"]) test(`sync push ${format} CLI retrieves 
   assert.equal(await readFile(stateFile, "utf8"), preparedState);
   assert.equal(f.git(["rev-parse", "HEAD"]), p.head);
 
+  const detail = cli(caller, "json", "repository.sync.push.evidence.read", ["--repo", f.repo,
+    "--operation", operation, "--expected-plan-sha256", p.plan_sha256, "--path", "own.txt"]);
+  assert.equal(detail.status, 0, detail.stdout + detail.stderr);
+  const details = JSON.parse(detail.stdout).result;
+  assert.equal(details.status, "evidence-ready");
+  assert.match(details.patch_excerpts[0].patch_excerpt, /\+requested work/);
+  assert.equal(await readFile(stateFile, "utf8"), preparedState);
+
   // Repeating the user's command returns the exact preparation without another commit.
   const duplicate = cli(caller, "json", "repository.sync.push.prepare", prepareArgs);
   assert.equal(duplicate.status, 0, duplicate.stdout + duplicate.stderr);
