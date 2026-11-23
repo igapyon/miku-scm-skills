@@ -90,9 +90,10 @@ not hashes, prove behavior.
 
 `repository.post-merge.next-work` has no separate preflight artifact because
 the human's explicit merge report is its operation-specific approval. It still
-requires both `--confirmed-merged` and `--apply`; the delegate revalidates the
-frozen branch and empty index, refreshes the base, checks the recommended tag,
-creates the next branch, and verifies exact `0 0` alignment in one invocation.
+requires `--published-head`, `--confirmed-merged` and `--apply`. The delegate
+checks the supplied full published SHA against the frozen branch and requires
+an empty index. It then fetches the base, checks that it contains the frozen
+HEAD, checks the recommended tag, creates the next branch, and verifies exact `0 0` alignment in one invocation.
 Remaining unstaged changes and untracked files are stashed before branch
 creation and restored on the new branch using the created stash's exact SHA.
 The stash is retained after success or failure. Failure results record the
@@ -288,6 +289,7 @@ node skills/igapyon-miku-scm/scripts/miku-scm-run.mjs \
 ```sh
 node skills/igapyon-miku-scm/scripts/miku-scm-run.mjs \
   repository.post-merge.next-work \
+  --published-head <verified-published-full-sha> \
   --confirmed-merged \
   --apply
 ```

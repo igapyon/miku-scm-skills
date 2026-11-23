@@ -1,7 +1,8 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { inspectNextWorkBranch, nextWorkAdvice, prepareNextWorkBranch, switchNextWorkBranch, workBranchName } from "./post-merge-next-work.mjs";
+import { assertNextWorkHistory, inspectNextWorkBranch, nextWorkAdvice, prepareNextWorkBranch, switchNextWorkBranch, unusedWorkBranchName } from "./miku-scm-next-work.mjs";
 import { MergeReadUnavailable, verifyMergedPull } from "./miku-scm-sync-merge-check.mjs";
+import { assertNotDoneRescueBranch } from "./miku-scm-rescue-branch.mjs";
 import { SHA, afterAction, ancestor, assertIdle, assertRemote, assertSnapshot, beforeAction, branch, checkPending, failure, fetchBase, head, loadOperation, newId, newOperation, openSync, readBaseRecord, readJson, remoteState, requireFetchBranch, resolveBase, saveBaseRecord, saveOperation, snapshot } from "./miku-scm-sync-state.mjs";
 import { createBackup, guardIgnored, integrateGit, locateStash, rebaseIdentity, requireGitCapabilities, restoreWork, stashWork, verifyLocation } from "./miku-scm-sync-worktree.mjs";
 
@@ -73,21 +74,60 @@ async function refuseDuplicateNext(ctx, op) {
   }
 }
 
-function result(ctx, op, status = "completed") {
+function result(ctx, op, status = "completed", observed = null) {
   const advice = op.advice ?? {};
   const warnings = [...new Set([...(op.warnings ?? []), ...ctx.warnings, ...(advice.warnings ?? [])])];
-  return { status, warnings, method: op.method, operation_id: op.id, previous_branch: op.original.branch, final_branch: branch(ctx), head: head(ctx), base: op.base.name, base_commit: op.base_sha, backup_branch: op.backup_branch ?? null, stash_sha: op.stash_sha ?? null, stash_retained: Boolean(op.stash_sha), merge_verification: op.merge_evidence ?? null, ...advice, warnings, mutation_invoked: op.mutation_invoked };
+  return { status, warnings, method: op.method, operation_id: op.id, previous_branch: op.original.branch, final_branch: observed?.branch ?? branch(ctx), head: observed?.head ?? head(ctx), base: op.base.name, base_commit: op.base_sha, backup_branch: op.backup_branch ?? null, stash_sha: op.stash_sha ?? null, stash_retained: Boolean(op.stash_sha), merge_verification: op.merge_evidence ?? null, ...advice, warnings, mutation_invoked: op.mutation_invoked };
+}
+
+function requireDoneHeadOnBase(ctx, op, diagnostic = "") {
+  if (!ancestor(ctx, op.original.head, op.base_sha)) {
+    throw new Error(`The fetched base does not contain the current -done HEAD. Exact PR verification is required to start the next branch. Use miku-scm recover done to preserve the work locally.${diagnostic ? ` ${diagnostic}` : ""}`);
+  }
 }
 
 async function complete(ctx, op, aborted = false) {
-  verifyLocation(ctx, op, aborted ? op.original.head : op.integrated_head);
   if (ctx.git(ctx.root, ["ls-files", "--unmerged", "-z"]).stdout) throw new Error("Resolve and stage every carryover conflict before resuming");
   if (await rebaseIdentity(ctx, op)) throw new Error("Rebase is still in progress");
-  if (!aborted && !ancestor(ctx, op.base_sha, head(ctx))) throw new Error("Synchronized HEAD does not contain the pinned base");
-  if (!aborted && (op.method !== "up-to-date" || op.record_base || op.original.head === op.base_sha)) await saveBaseRecord(ctx, branch(ctx), op.remote, op.base, op.base_sha);
-  op.status = aborted ? "aborted" : "completed";
-  await saveOperation(ctx, op);
-  return result(ctx, op, aborted ? "aborted" : op.method === "up-to-date" ? "up-to-date" : "completed");
+  const observed = verifyLocation(ctx, op, aborted ? op.original.head : op.integrated_head);
+  if (!aborted && !ancestor(ctx, op.base_sha, observed.head)) throw new Error("Synchronized HEAD does not contain the pinned base");
+  if (!aborted && (op.method !== "up-to-date" || op.record_base || op.original.head === op.base_sha)) await saveBaseRecord(ctx, observed.branch, op.remote, op.base, op.base_sha, observed.head);
+  const status = aborted ? "aborted" : "completed";
+  await saveOperation(ctx, { ...op, status });
+  op.status = status;
+  return result(ctx, op, op.method === "up-to-date" && !aborted ? "up-to-date" : status, observed);
+}
+
+function nextWorkRefExists(ctx, op) {
+  const ref = ctx.git(ctx.root, ["show-ref", "--verify", "--quiet", `refs/heads/${op.next_branch}`], { allowFailure: true });
+  if (ref.ok) return true;
+  if (ref.code === 1) return false;
+  throw new Error("Cannot determine whether the next-work branch exists");
+}
+
+function resumeAfter(op, error, instruction, flag = "") {
+  error.nextAction = `${instruction}, then run miku-scm sync pull --resume ${op.id}${flag ? ` ${flag}` : ""}`;
+  return error;
+}
+
+function confirmBranchSetup(op, error) {
+  return resumeAfter(op, error, `Verify that ${op.next_branch} points to ${op.base_sha} and review its upstream and any checkout hook`, "--resolved-next-work");
+}
+
+function confirmCheckout(op, error) {
+  return resumeAfter(op, error, "Inspect and resolve the checkout or its hook", "--resolved-next-work");
+}
+
+async function restorePullWork(ctx, op, resolvedCarryover = false) {
+  try {
+    if (!op.restore_started) await restoreWork(ctx, op);
+    else if (!op.restore_ok && !resolvedCarryover) throw new Error("Inspect every path in the retained stash and explicitly confirm its resolution with --resolved-carryover");
+  } catch (error) {
+    if (op.restore_started && !op.restore_ok) {
+      throw resumeAfter(op, error, "Inspect the retained stash and resolve and stage the carryover", "--resolved-carryover");
+    }
+    throw error;
+  }
 }
 
 async function integrateNextWork(ctx, op, options = {}) {
@@ -97,23 +137,34 @@ async function integrateNextWork(ctx, op, options = {}) {
     if (!onOriginal() || ctx.git(ctx.root, ["status", "--porcelain"]).out) throw new Error("Next-work checkout requires the original clean branch and HEAD");
   };
   if (!op.next_work || op.next_work.phase === "creating") {
-    const exists = ctx.git(ctx.root, ["show-ref", "--verify", "--quiet", `refs/heads/${op.next_branch}`], { allowFailure: true }).ok;
     let prepared;
-    if (exists) {
-      if (!options.resolvedNextWork) throw new Error("Next-work preparation has no complete receipt; inspect its branch configuration and checkout hook, then resume with --resolved-next-work");
+    if (nextWorkRefExists(ctx, op)) {
+      if (!options.resolvedNextWork) {
+        throw confirmBranchSetup(op, new Error("Next-work preparation has no complete receipt; inspect its branch configuration and checkout hook, then resume with --resolved-next-work"));
+      }
       if (!onNext()) requireCleanOriginal();
       prepared = inspectNextWorkBranch(ctx.root, op.next_branch, op.base_sha, ctx.git);
     } else {
       requireCleanOriginal();
       op.next_work = { phase: "creating" };
       await beforeAction(ctx, op, "next-work-create");
-      prepared = prepareNextWorkBranch(ctx.root, op.next_branch, op.base_sha, op.base.ref, ctx.git);
+      try {
+        prepared = prepareNextWorkBranch(ctx.root, op.next_branch, op.base_sha, op.base.ref, ctx.git);
+      } catch (error) {
+        let created;
+        try { created = nextWorkRefExists(ctx, op); } catch {
+          error.nextAction = `Could not verify ${op.next_branch}. Inspect its SHA and tracking configuration for operation ${op.id}.`;
+          throw error;
+        }
+        if (created) throw confirmBranchSetup(op, error);
+        throw resumeAfter(op, error, "Resolve the branch creation error");
+      }
     }
     op.next_work = { phase: onNext() ? "switched" : "prepared", ...prepared };
     await saveOperation(ctx, op);
   }
   if (["switching", "checkout-failed"].includes(op.next_work.phase)) {
-    if (!options.resolvedNextWork) throw new Error("Next-work checkout or its hook is unconfirmed; inspect and resolve it, then resume with --resolved-next-work");
+    if (!options.resolvedNextWork) throw confirmCheckout(op, new Error("Next-work checkout or its hook is unconfirmed; inspect and resolve it, then resume with --resolved-next-work"));
     if (!onNext()) requireCleanOriginal();
     op.next_work.phase = onNext() ? "switched" : "prepared";
     await saveOperation(ctx, op);
@@ -121,14 +172,19 @@ async function integrateNextWork(ctx, op, options = {}) {
   if (op.next_work.phase === "prepared") {
     requireCleanOriginal();
     const prepared = inspectNextWorkBranch(ctx.root, op.next_branch, op.base_sha, ctx.git);
-    if (prepared.upstream !== op.next_work.upstream && !options.resolvedNextWork) throw new Error("Prepared next-work tracking configuration changed; inspect it before --resolved-next-work");
+    if (prepared.upstream !== op.next_work.upstream && !options.resolvedNextWork) {
+      throw confirmBranchSetup(op, new Error("Prepared next-work tracking configuration changed; inspect it before --resolved-next-work"));
+    }
     assertRemote(ctx, op.remote);
     await guardIgnored(ctx, [op.base_sha]);
     await beforeAction(ctx, op, "next-work-switch");
     op.next_work.phase = "switching";
     await saveOperation(ctx, op);
     try { switchNextWorkBranch(ctx.root, op.next_branch, op.base_sha, ctx.git); }
-    catch (error) { op.next_work.phase = "checkout-failed"; await saveOperation(ctx, op); throw error; }
+    catch (error) {
+      op.next_work.phase = "checkout-failed";
+      throw confirmCheckout(op, error);
+    }
     op.next_work.phase = "switched";
     await afterAction(ctx, op);
   }
@@ -163,6 +219,7 @@ async function recover(ctx, op, options) {
     return complete(ctx, op, true);
   }
   if (op.method === "next-work") {
+    assertNextWorkHistory(ctx.root, ctx.git);
     if (rebasing) throw new Error("An unexpected rebase blocks next-work recovery");
     await integrateNextWork(ctx, op, options);
   } else if (rebasing) {
@@ -190,16 +247,50 @@ async function recover(ctx, op, options) {
     } else throw new Error("The interrupted integration cannot be proven complete; inspect the backup and exact stash");
   }
   verifyLocation(ctx, op, op.integrated_head);
-  if (op.restore_started && !op.restore_ok && !options.resolvedCarryover) throw new Error("Inspect every path in the retained stash and explicitly confirm its resolution with --resolved-carryover");
-  if (!op.restore_started) await restoreWork(ctx, op);
+  await restorePullWork(ctx, op, options.resolvedCarryover);
   return complete(ctx, op);
+}
+
+async function legacyPostMergeSnapshot(ctx, expected) {
+  const state = await snapshot(ctx);
+  if (state.branch !== expected.branch) {
+    throw new Error(`Current branch ${state.branch} differs from the -done branch confirmed by the legacy entry ${expected.branch}; no sync changes were made`);
+  }
+  if (!SHA.test(expected.publishedHead ?? "") || state.head !== expected.publishedHead) {
+    throw new Error(`Current -done HEAD ${state.head} differs from published HEAD ${expected.publishedHead ?? ""}; use miku-scm recover done to preserve the work`);
+  }
+  if (ctx.git(ctx.root, ["diff", "--cached", "--name-only", "--no-ext-diff", "--no-textconv"]).out) {
+    throw new Error("Index is dirty; staged changes are outside the unstaged carryover workflow");
+  }
+  try {
+    verifyLocation(ctx, { original: { branch: expected.branch } }, expected.publishedHead);
+  } catch (error) {
+    throw new Error(`The confirmed -done branch ${expected.branch} at published HEAD ${expected.publishedHead} could not be verified; no sync changes were made (${error.message})`);
+  }
+  return state;
 }
 
 export async function runSyncPull(options, dependencies = {}) {
   const id = options.confirmMerged || options.resume || options.abort || newId();
   const { ctx, release } = await openSync(options.repo, dependencies, id, Boolean(options.confirmMerged || options.resume || options.abort), { allowMissingInitialization: Boolean(options.abort) });
+  let outcome;
+  try {
+    outcome = await runLockedPull(ctx, id, options);
+  } finally {
+    try { await release(); } catch {
+      if (outcome) {
+        outcome.warnings = [...(outcome.warnings ?? []), "Could not release the sync lock. Check the lock before starting another sync."];
+      }
+    }
+  }
+  return outcome;
+}
+
+async function runLockedPull(ctx, id, options) {
+  const { dependencies } = ctx;
   let op;
   try {
+    if (!options.abort) assertNotDoneRescueBranch(ctx.root, branch(ctx), ctx.git);
     if (ctx.recoveredInitialization && options.abort) return { status: "cancelled", operation_id: id, reason: "Cancelled interrupted sync initialization; start a new sync", final_branch: branch(ctx), head: head(ctx), mutation_invoked: false };
     if (options.resume || options.abort) {
       const loaded = await loadOperation(ctx, id);
@@ -208,10 +299,11 @@ export async function runSyncPull(options, dependencies = {}) {
       await checkPending(ctx, { except: id });
       return await recover(ctx, op, options);
     }
+    let initial = options.legacyPostMerge ? await legacyPostMergeSnapshot(ctx, options.legacyPostMerge) : undefined;
     await checkPending(ctx, options.confirmMerged ? { except: id } : { pull: true });
     await assertIdle(ctx);
     requireGitCapabilities(ctx);
-    let initial, remote, base;
+    let remote, base;
     let confirmedBase;
     if (options.confirmMerged) {
       const saved = await loadOperation(ctx, id);
@@ -224,27 +316,42 @@ export async function runSyncPull(options, dependencies = {}) {
       await assertSnapshot(ctx, initial);
       confirmedBase = op.base_sha;
     } else {
-      initial = await snapshot(ctx);
+      initial ??= await snapshot(ctx);
+      assertNotDoneRescueBranch(ctx.root, initial.branch, ctx.git);
       remote = remoteState(ctx, options.remote);
       base = resolveBase(ctx, options.remote, options.base);
       op = await newOperation(ctx, "pull", id, initial, remote, base, null);
     }
-    op.base_sha = fetchBase(ctx, remote, base);
+    const frozen = initial.branch.endsWith("-done");
+    if (frozen) assertNextWorkHistory(ctx.root, ctx.git);
+    op.base_sha = fetchBase(ctx, remote, base, { onlyBase: frozen });
     await assertSnapshot(ctx, initial);
     if (options.confirmMerged) {
       if (!ancestor(ctx, confirmedBase, op.base_sha)) throw new Error("Shared base history changed since the merge question; inspect it and request a fresh sync pull");
+      requireDoneHeadOnBase(ctx, op);
       op.status = "running";
       op.merge_evidence = { source: "human", repository: remote.identity, branch: initial.branch.slice(0, -5), head: initial.head, base: base.name, confirmed_at: new Date().toISOString() };
       await saveOperation(ctx, op);
     }
-    if (initial.branch.endsWith("-done")) {
+    if (frozen) {
       await refuseDuplicateNext(ctx, op);
-      if (!options.confirmMerged) {
+      if (options.legacyPostMerge) {
+        requireDoneHeadOnBase(ctx, op);
+        op.merge_evidence = {
+          source: "human",
+          repository: remote.identity,
+          branch: initial.branch.slice(0, -5),
+          head: initial.head,
+          base: base.name,
+          confirmed_at: new Date().toISOString(),
+        };
+      } else if (!options.confirmMerged) {
         try { op.merge_evidence = await verifyMergedPull(ctx, op); }
         catch (error) {
           if (!(error instanceof MergeReadUnavailable)) throw error;
           assertRemote(ctx, remote);
           await assertSnapshot(ctx, initial);
+          requireDoneHeadOnBase(ctx, op, error.message);
           op.status = "awaiting-merge-confirmation";
           op.merge_read_failure = error.message;
           await saveOperation(ctx, op);
@@ -261,8 +368,7 @@ export async function runSyncPull(options, dependencies = {}) {
       assertRemote(ctx, remote);
       await assertSnapshot(ctx, initial);
       op.method = "next-work";
-      op.next_branch = workBranchName(base.name, dependencies.now ? dependencies.now() : new Date());
-      if (ctx.git(ctx.root, ["show-ref", "--verify", "--quiet", `refs/heads/${op.next_branch}`], { allowFailure: true }).ok) throw new Error("Next work branch already exists");
+      op.next_branch = unusedWorkBranchName(ctx.root, base.name, dependencies.now ? dependencies.now() : new Date(), ctx.git);
     } else {
       const record = await readBaseRecord(ctx, initial.branch, remote, base);
       op.record_base = record?.base_sha ?? null;
@@ -282,6 +388,7 @@ export async function runSyncPull(options, dependencies = {}) {
     await beforeAction(ctx, op, "pre-mutation");
     assertRemote(ctx, remote);
     await assertSnapshot(ctx, initial);
+    if (frozen) assertNextWorkHistory(ctx.root, ctx.git);
     await createBackup(ctx, op);
     await assertSnapshot(ctx, initial);
     await stashWork(ctx, op);
@@ -298,10 +405,15 @@ export async function runSyncPull(options, dependencies = {}) {
     else integrated = integrateGit(ctx, ["rebase", "--merge", "--reapply-cherry-picks", "--empty=stop", "--keep-empty", "--no-autostash", "--no-autosquash", "--no-update-refs", "--no-fork-point", "--onto", op.base_sha, op.record_base], { allowFailure: true }).ok;
     await afterAction(ctx, op);
     if (!integrated) throw new Error("Integration stopped; resolve the same rebase or explicitly abort this operation");
-    op.integrated_head = head(ctx);
-    await saveOperation(ctx, op);
-    await restoreWork(ctx, op);
+    if (op.method !== "next-work") {
+      op.integrated_head = head(ctx);
+      await saveOperation(ctx, op);
+    }
+    await restorePullWork(ctx, op);
     return await complete(ctx, op);
-  } catch (error) { return await failure(ctx, op, error); }
-  finally { await release(); }
+  } catch (error) {
+    const stopped = await failure(ctx, op, error);
+    if (stopped.mutation_invoked && error.nextAction) stopped.next_action = error.nextAction;
+    return stopped;
+  }
 }

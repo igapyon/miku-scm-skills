@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runSyncPull, parseArgs } from "../scripts/sync-pull.mjs";
+import { prepareSyncPush } from "../scripts/sync-push.mjs";
+import { run as runNextWork } from "../scripts/post-merge-next-work.mjs";
 import { renderHumanOutput } from "../scripts/miku-scm-human-output.mjs";
-import { context, hash, loadOperation, lock, newId, snapshot, syncGit, writeJson } from "../scripts/miku-scm-sync-state.mjs";
+import { context, loadOperation, lock, newId, snapshot, syncGit, writeJson } from "../scripts/miku-scm-sync-state.mjs";
 import { guardIgnored } from "../scripts/miku-scm-sync-worktree.mjs";
 import { fixture } from "./sync-fixture.mjs";
 
@@ -52,7 +54,7 @@ test("sync pull retains an invalid package version policy as an advisory warning
 });
 
 test("human-confirmed sync pull on private GHE retains staged, unstaged and untracked work", async (t) => {
-  const f = await doneFixture(t, {}, true, "ghe.example.test:8443");
+  const f = await doneFixture(t, {}, false, "ghe.example.test:8443");
   await f.write("carry.txt", "staged\n"); f.git(["add", "carry.txt"]);
   await f.write("carry.txt", "staged\nunstaged\n"); await f.write("untracked.txt", "new\n");
   const before = await snapshot(await context(f.repo));
@@ -80,7 +82,136 @@ test("human-confirmed sync pull on private GHE retains staged, unstaged and untr
   assert.equal((await loadOperation(await context(f.repo), pending.operation_id)).status, "completed");
 });
 
-for (const change of ["worktree", "index", "head", "remote", "base-history"]) {
+test("unavailable PR evidence cannot authorize leaving accidental commits on -done", async (t) => {
+  const f = await doneFixture(t);
+  const local = await f.commit("accidental.txt", "later work\n");
+  const before = await snapshot(await context(f.repo));
+  const dependencies = withoutGh(f, async () => new Response("", { status: 404 }));
+  const result = await runSyncPull(f.options, dependencies);
+  assert.equal(result.status, "not-applied", JSON.stringify(result));
+  assert.equal(result.confirmation_required, undefined);
+  assert.equal(result.mutation_invoked, false);
+  assert.match(result.reason, /fetched base does not contain the current -done HEAD.*recover done/);
+  assert.equal(f.git(["rev-parse", "HEAD"]), local);
+  assert.equal((await snapshot(await context(f.repo))).digest, before.digest);
+});
+
+test("squash merge needs a verified PR when Git ancestry cannot prove the HEAD was included", async (t) => {
+  const f = await doneFixture(t, {}, true);
+  const before = await snapshot(await context(f.repo));
+  const stopped = await runSyncPull(f.options, withoutGh(f, async () => new Response("", { status: 404 })));
+  assert.equal(stopped.status, "not-applied", JSON.stringify(stopped));
+  assert.equal(stopped.mutation_invoked, false);
+  assert.equal(stopped.confirmation_required, undefined);
+  assert.match(stopped.reason, /fetched base does not contain the current -done HEAD/);
+  assert.equal((await snapshot(await context(f.repo))).digest, before.digest);
+
+  const verified = await runSyncPull(f.options, f.dependencies);
+  assert.equal(verified.status, "completed", JSON.stringify(verified));
+  assert.equal(verified.merge_verification.head, f.pull.head.sha);
+});
+
+test("next-work skips the name reserved by the frozen branch and can prepare a push", async (t) => {
+  const f = await doneFixture(t);
+  const frozen = f.git(["branch", "--show-current"]);
+  await f.write("carry.txt", "next work\n");
+  const pulled = await runSyncPull(f.options, { ...f.dependencies, now: () => new Date("2026-10-26T00:00:25+09:00") });
+  assert.equal(pulled.status, "completed", JSON.stringify(pulled));
+  assert.equal(pulled.final_branch, "devel-tiga1026aab");
+  assert.equal(f.git(["rev-parse", `refs/heads/${frozen}`]), f.pull.head.sha);
+  assert.equal(await f.read("carry.txt"), "next work\n");
+  const pushed = await prepareSyncPush(f.options);
+  assert.equal(pushed.status, "prepared", JSON.stringify(pushed));
+});
+
+test("sync pull leaves ignored collisions and untracked carryover in place before backup or stash", async (t) => {
+  const f = await doneFixture(t);
+  await f.write("ignored/config.txt", "remote version\n", f.other);
+  syncGit(f.other, ["add", "-f", "ignored/config.txt"]);
+  syncGit(f.other, ["commit", "-m", "Track ignored target"]);
+  syncGit(f.other, ["push", "origin", "devel"]);
+  await f.write("ignored/config.txt", "local ignored version\n");
+  await f.write("carry.txt", "preserve this too\n");
+  await writeFile(path.join(f.repo, ".git/info/exclude"), "ignored/config.txt\n");
+  const beforeBranch = f.git(["branch", "--show-current"]);
+  const beforeRefs = f.git(["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"]);
+  const beforeStash = f.git(["stash", "list", "--format=%H"]);
+  const calls = [];
+  const dependencies = {
+    ...f.dependencies,
+    git: (cwd, args, options) => { calls.push(args); return f.dependencies.git(cwd, args, options); },
+  };
+
+  const result = await runSyncPull(f.options, dependencies);
+
+  assert.equal(result.status, "not-applied", JSON.stringify(result));
+  assert.match(result.reason, /Ignored path would be overwritten by sync/);
+  assert.equal(result.backup_branch, null);
+  assert.equal(result.stash_sha, null);
+  assert.equal(f.git(["branch", "--show-current"]), beforeBranch);
+  assert.equal(f.git(["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"]), beforeRefs);
+  assert.equal(f.git(["stash", "list", "--format=%H"]), beforeStash);
+  assert.equal(await f.read("ignored/config.txt"), "local ignored version\n");
+  assert.equal(await f.read("carry.txt"), "preserve this too\n");
+  assert.equal(calls.some((args) => args[0] === "stash" || (args[0] === "branch" && !args[1]?.startsWith("--"))), false);
+});
+
+test("local replacement history cannot authorize a frozen branch transition", async (t) => {
+  const f = await doneFixture(t);
+  const shared = await f.advance();
+  const accidental = await f.commit("local-only.txt", "post-publication work\n");
+  f.git(["fetch", "origin"]);
+  f.git(["replace", "--graft", shared, accidental]);
+  assert.equal(syncGit(f.repo, ["merge-base", "--is-ancestor", accidental, shared], { allowFailure: true }).ok, true);
+  assert.equal(syncGit(f.repo, ["--no-replace-objects", "merge-base", "--is-ancestor", accidental, shared], { allowFailure: true }).ok, false);
+  const before = await snapshot(await context(f.repo));
+  const pull = await runSyncPull(f.options, withoutGh(f, async () => new Response("", { status: 404 })));
+  assert.equal(pull.status, "not-applied", JSON.stringify(pull));
+  assert.equal(pull.confirmation_required, undefined);
+  assert.equal(pull.mutation_invoked, false);
+  assert.match(pull.reason, /Local Git replacements or grafts/);
+  await assert.rejects(runNextWork({ ...f.options, publishedHead: accidental, confirmedMerged: true }),
+    (error) => error.mutationInvoked === false && /Local Git replacements or grafts/.test(error.message));
+  assert.equal((await snapshot(await context(f.repo))).digest, before.digest);
+  assert.equal(f.git(["rev-parse", "HEAD"]), accidental);
+});
+
+test("saved merge confirmation stops when a local graft is introduced", async (t) => {
+  const f = await doneFixture(t);
+  const dependencies = withoutGh(f, async () => new Response("", { status: 404 }));
+  const pending = await runSyncPull(f.options, dependencies);
+  assert.equal(pending.confirmation_required, true);
+  await f.write(".git/info/grafts", `${f.pull.head.sha}\n`);
+  const result = await runSyncPull({ repo: f.repo, apply: true, confirmMerged: pending.operation_id }, dependencies);
+  assert.equal(result.status, "not-applied", JSON.stringify(result));
+  assert.equal(result.mutation_invoked, false);
+  assert.match(result.reason, /Local Git replacements or grafts/);
+  assert.equal(f.git(["branch", "--show-current"]), "devel-tiga1026aaa-done");
+});
+
+test("a custom graft path with a trailing space stops either next-work entry", { skip: process.platform === "win32" }, async (t) => {
+  const f = await doneFixture(t);
+  const shared = await f.advance();
+  const accidental = await f.commit("local-only.txt", "post-publication work\n");
+  const previous = process.env.GIT_GRAFT_FILE;
+  t.after(() => {
+    if (previous === undefined) delete process.env.GIT_GRAFT_FILE;
+    else process.env.GIT_GRAFT_FILE = previous;
+  });
+  f.git(["fetch", "origin"]);
+  await f.write("custom grafts ", `${shared} ${accidental}\n`);
+  process.env.GIT_GRAFT_FILE = path.join(f.repo, "custom grafts ");
+  assert.equal(syncGit(f.repo, ["merge-base", "--is-ancestor", accidental, shared], { allowFailure: true }).ok, true);
+  const stopped = await runSyncPull(f.options, withoutGh(f, async () => new Response("", { status: 404 })));
+  assert.equal(stopped.status, "not-applied");
+  assert.equal(stopped.confirmation_required, undefined);
+  assert.match(stopped.reason, /Local Git replacements or grafts/);
+  await assert.rejects(runNextWork({ ...f.options, publishedHead: accidental, confirmedMerged: true }),
+    (error) => error.mutationInvoked === false && /Local Git replacements or grafts/.test(error.message));
+  assert.equal(f.git(["rev-parse", "HEAD"]), accidental);
+});
+
+for (const change of ["worktree", "index", "head", "remote", "base-history", "deleted base"]) {
   test(`human merge confirmation rejects changed ${change}`, async (t) => {
     const f = await doneFixture(t);
     await f.advance();
@@ -91,6 +222,7 @@ for (const change of ["worktree", "index", "head", "remote", "base-history"]) {
     if (change === "head") await f.commit("edit.txt", "changed\n");
     if (change === "remote") f.git(["config", "remote.origin.tagOpt", "--no-tags"]);
     if (change === "base-history") syncGit(f.other, ["push", "--force", "origin", "HEAD~1:devel"]);
+    if (change === "deleted base") syncGit(f.remote, ["update-ref", "-d", "refs/heads/devel"]);
     const before = await snapshot(await context(f.repo));
     const result = await runSyncPull({ repo: f.repo, apply: true, confirmMerged: pending.operation_id }, dependencies);
     assert.equal(result.status, "not-applied", JSON.stringify(result));

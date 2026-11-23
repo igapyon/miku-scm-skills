@@ -1,7 +1,8 @@
 # Runtime rules: sync pull
 
-Run only for an explicit `miku-scm sync pull` request. Invoke the fixed
-`repository.sync.pull --apply` workflow for the target repository. Do not push.
+For an explicit `miku-scm sync pull` or a standalone `miku-scm github merge done`
+on a frozen branch, invoke `repository.sync.pull --apply` for the target
+repository. Do not push.
 
 The helper fetches the shared base, preserves staged/unstaged/untracked work,
 and chooses the supported no-op, fast-forward, or recorded-base replay. It may
@@ -12,11 +13,13 @@ Pull requires Git 2.45 or newer. It respects configured fetch refspecs and tag
 settings; incomplete branch coverage stops divergent replay instead of widening
 the fetch.
 
-An ordinary work branch does not query PR merge state. A local `-done` branch
-must be verified as the exact merged PR before next-work creation. If GitHub
-reads are unavailable, show the helper's saved branch, HEAD, base and question;
-wait for an affirmative reply about that displayed target. Continue the same
-operation with its returned ID. The helper rechecks saved state and refetches;
+An ordinary work branch does not query PR merge state. On a local `-done`
+branch, the helper fetches the proposed base and verifies the exact merged PR.
+If GitHub reads are unavailable, the helper can request human confirmation
+when the fetched base contains the current HEAD. Show the saved repository,
+branch, HEAD, base and question. Wait for an affirmative
+reply about that displayed target. Continue the same operation with its
+returned ID. The helper rechecks saved state and refetches;
 do not infer merge from the original request, choose another pending operation,
 or proceed on an ambiguous answer.
 

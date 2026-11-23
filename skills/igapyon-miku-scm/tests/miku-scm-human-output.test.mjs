@@ -17,7 +17,7 @@ test("partial commit output shows the actual branch after a concurrent switch", 
 });
 
 test("human output schema is versioned", () => {
-  assert.equal(HUMAN_OUTPUT_SCHEMA_VERSION, "miku-scm.human-output/v18");
+  assert.equal(HUMAN_OUTPUT_SCHEMA_VERSION, "miku-scm.human-output/v20");
 });
 
 test("prepared sync push output identifies its operation and saved evidence", () => {
@@ -613,6 +613,24 @@ Mutation invoked: yes
 Next work branch is ready: devel-tiga0728wcg
 `);
   assert.doesNotMatch(output, /[ぁ-んァ-ヶ一-龠]/);
+});
+
+test("done recovery output names the local rescue branch and preserved HEAD", () => {
+  const output = renderHumanOutput({
+    workflow: "repository.done.recover",
+    status: "success",
+    mutationInvoked: true,
+    result: {
+      status: "rescued",
+      previous_branch: "devel-tiga1120kaa-done",
+      final_branch: "rescue/done/devel-tiga1120kaa-done/aaaaaaaaaaaa",
+      head: "a".repeat(40),
+      working_tree: "dirty",
+    },
+  });
+  assert.match(output, /Frozen -done branch recovery/);
+  assert.ok(output.includes("Local rescue branch: rescue/done/devel-tiga1120kaa-done/aaaaaaaaaaaa"));
+  assert.ok(output.includes(`Preserved HEAD: ${"a".repeat(40)}`));
 });
 
 test("PR publication apply output contains the complete human handoff", () => {

@@ -33,7 +33,7 @@ import {
 } from "./github-issue-close.mjs";
 import { relativeOperationalPath } from "./miku-scm-operational-path.mjs";
 import { parseArgs as parseSyncPullArgs, runSyncPull } from "./sync-pull.mjs";
-import { parseArgs as parseSyncPushArgs, prepareSyncPush, prepareSyncPushDraft, applySyncPush } from "./sync-push.mjs";
+import { parseArgs as parseSyncPushArgs, prepareSyncPush, prepareSyncPushDraft, readSyncPushEvidence, applySyncPush } from "./sync-push.mjs";
 import {
   applyMaintenancePlan,
   diagnose as diagnoseMaintenance,
@@ -44,6 +44,7 @@ import {
   parseArgs as parsePostMergeArgs,
   run as runPostMergeNextWork,
 } from "./post-merge-next-work.mjs";
+import { parseArgs as parseDoneRecoveryArgs, run as runDoneRecovery } from "./done-recovery.mjs";
 import {
   executePublish,
   parseArgs as parsePublishArgs,
@@ -115,7 +116,7 @@ import { failureEvent } from "./miku-scm-observability.mjs";
 
 export const RUNNER_SCHEMA_VERSION = "miku-scm.runner/v1";
 export const RESULT_SCHEMA_VERSION = "miku-scm.runner-result/v1";
-export const PRODUCT_VERSION = "0.8.3";
+export const PRODUCT_VERSION = "0.9.0";
 
 const ISSUE_APPLY_WORKFLOWS = new Set([
   "github.issue.create.apply",
@@ -688,8 +689,16 @@ export function workflowRegistry(dependencies = {}) {
           : mode === "push.draft.prepare" ? prepareSyncPushDraft(options, dependencies.syncPushDependencies)
             : applySyncPush(options, dependencies.syncPushDependencies),
     }]),
-    ["repository.post-merge.next-work", {
+    ["repository.sync.push.evidence.read", {
       version: 1,
+      mutationLevel: "readonly",
+      approvalGate: "preflight",
+      parse: (argv, cwd) => parseSyncPushArgs("evidence.read", argv, cwd),
+      plan: (options) => ({ operation: "sync-push-evidence-read", repository: path.resolve(options.repo), mutation_invocation_allowed: false }),
+      execute: (options) => readSyncPushEvidence(options, dependencies.syncPushDependencies),
+    }],
+    ["repository.post-merge.next-work", {
+      version: 2,
       mutationLevel: "local",
       approvalGate: "apply",
       parse: parsePostMergeArgs,
@@ -698,13 +707,26 @@ export function workflowRegistry(dependencies = {}) {
         repository: path.resolve(options.repo),
         remote: options.remote,
         base: options.base || null,
+        published_head: options.publishedHead.toLowerCase(),
         confirmed_merge: options.confirmedMerged,
         mutation_invocation_allowed: true,
       }),
       execute: (options) => runPostMergeNextWork(
         options,
-        dependencies.postMergeDependencies,
+        { ...dependencies.postMergeDependencies, syncPullDependencies: dependencies.syncPullDependencies },
       ),
+    }],
+    ["repository.done.recover", {
+      version: 2,
+      mutationLevel: "local",
+      approvalGate: "apply",
+      parse: parseDoneRecoveryArgs,
+      plan: (options) => ({
+        operation: "done-branch-recovery",
+        repository: path.resolve(options.repo),
+        mutation_invocation_allowed: true,
+      }),
+      execute: (options) => runDoneRecovery(options),
     }],
     ["work.commit", workCommitWorkflow(dependencies)],
     ["pr.publish.preflight", publishWorkflow("preflight", dependencies)],
@@ -961,7 +983,7 @@ export async function runWorkflow(workflowId, argv, dependencies = {}) {
         message,
         ...event,
         ...guidance,
-        ...(workflowId === "repository.post-merge.next-work" && error?.recovery
+        ...(["repository.post-merge.next-work", "repository.done.recover"].includes(workflowId) && error?.recovery
           ? { recovery: error.recovery } : {}),
       },
     };

@@ -61,7 +61,7 @@ test("benchmark separates cold and warm metrics without remote mutation", async 
   assert.ok(result.fixture.human_output_bytes > 0);
   assert.equal(
     result.fixture.human_output_schema_version,
-    "miku-scm.human-output/v18",
+    "miku-scm.human-output/v20",
   );
   assert.equal(result.context.file_count, 1);
   assert.deepEqual(result.context.files, ["skills/igapyon-miku-scm/SKILL.md"]);

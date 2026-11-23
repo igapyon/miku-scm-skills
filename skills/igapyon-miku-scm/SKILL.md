@@ -38,7 +38,8 @@ repository inspection or mutation.
 | `miku-scm git add commit` | `work.commit --apply` |
 | `miku-scm draft recommit push` or its `pr recommit push` alias | `pr.recommit.push` fixed flow; keep its explicit rewrite gate |
 | bare `recommit` | PR text drafting and preflight; keep the local history rewrite gate |
-| `miku-scm github merge done` | `repository.post-merge.next-work --confirmed-merged --apply`; preserve its merged-branch rules |
+| `miku-scm github merge done` | On a frozen branch, use `repository.sync.pull --apply`; a reply to a pending merge question continues its saved operation |
+| `miku-scm recover done` | `repository.done.recover --apply`, following [the frozen branch procedure](references/runtime-done-recovery.md) |
 | `miku-scm pending` / `miku-scm dismiss <selector>` | `github.issue.handoff.list` / `github.issue.handoff.dismiss` |
 | GitHub Issue create/update/comment/label/close | Complete all preflights, review the exact handoff, then wait for exact approval before the matching apply |
 | Other supported request | Select one exact ID from `scripts/miku-scm-workflow-manifest.mjs` |
@@ -48,6 +49,13 @@ turn without asking between them. A failed gate or uncertain result stops the
 sequence. Do not infer a different workflow from similar wording. `draft` means
 saved PR text; the human creates and merges PRs. This Skill alone owns the
 `draft recommit push` aliases; do not route them through `igapyon-github-writer`.
+
+Before editing the target worktree, committing, synchronizing, or switching to
+the next branch after a merge, check the current branch. For `*-done` and
+`rescue/done/*`, apply [the frozen branch procedure](references/runtime-done-recovery.md)
+before any normal runner call. After a successful sync push that leaves
+`*-done` checked out, name that branch, say it is frozen, and tell the user to
+run `miku-scm sync pull` after the PR merge before starting new work.
 
 ## Fixed runner rules
 
@@ -59,7 +67,10 @@ other than sync return the runner's `human_output` unchanged. For sync, explain
 the result and next action in the user's language.
 
 For a sync sequence, keep IDs and digests from this conversation. Only
-`prepared` advances sync push. The read-only `repository.sync.push.draft.prepare`
+`prepared` advances sync push. Use its bounded PR evidence first. If a major
+change needs more detail, request the necessary paths in one read-only
+`repository.sync.push.evidence.read` call before drafting. The read-only
+`repository.sync.push.draft.prepare`
 checks the saved plan and exact draft bytes, then returns the workflow ID and
 complete argument array for apply. Execute that array once. A changed base
 requires an explicit sync pull and fresh preparation. A no-op is `up-to-date`;
@@ -163,6 +174,7 @@ documents below:
 - Repository and branch rules: [`scm-rules.md`](references/scm-rules.md),
   [`local-git-readonly.md`](references/local-git-readonly.md),
   [`repository-maintenance.md`](references/repository-maintenance.md).
+- Frozen `-done` recovery: [`done-recovery.md`](references/done-recovery.md).
 - PR/Release/About writing and audit: [`github-writing-rules.md`](references/github-writing-rules.md),
   the exact topic reference, and relevant version/tag/release references.
 - Runner design, errors, cost and tests: [`workflow-routing.md`](references/workflow-routing.md),

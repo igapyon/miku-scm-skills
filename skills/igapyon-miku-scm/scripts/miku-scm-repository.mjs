@@ -90,3 +90,12 @@ export function repositoryCacheParts(value) {
   return [...(parsed.host && parsed.host !== "github.com" ? [encodeURIComponent(parsed.host)] : []),
     parsed.owner, parsed.repository];
 }
+
+export function localBranchNames(root, git) {
+  const refs = git(root, ["for-each-ref", "--format=%(refname:strip=2)", "refs/heads"]);
+  return (refs.stdout ?? refs.out).split(/\r?\n/).filter(Boolean);
+}
+
+export function branchNameConflicts(branches, name) {
+  return branches.some((branch) => branch === name || branch.startsWith(`${name}/`) || name.startsWith(`${branch}/`));
+}

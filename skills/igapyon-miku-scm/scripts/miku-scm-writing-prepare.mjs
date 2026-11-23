@@ -6,6 +6,7 @@ import { ghRepository, parseRepository } from "./miku-scm-repository.mjs";
 
 import { runIssueRead } from "./github-issue-read.mjs";
 import { jstTimestamp } from "./miku-scm-jst-time.mjs";
+import { collectSyncPushEvidence, redactSensitiveLines, SYNC_PUSH_EVIDENCE_PROFILE } from "./miku-scm-sync-push-evidence.mjs";
 
 export const WRITING_EVIDENCE_SCHEMA_VERSION = "miku-scm.writing-evidence/v1";
 
@@ -95,14 +96,6 @@ function suggestedPath(mode, branch, now) {
   if (mode === "release") return `workplace/miku-scm/release-${stamp}.md`;
   if (mode === "about") return `workplace/miku-scm/about-${stamp}.md`;
   return `workplace/miku-scm/new-issues/issue-new-${stamp}.md`;
-}
-
-function redactSensitiveLines(value) {
-  return String(value).split("\n").map((line) => (
-    /(?:token|password|secret|api[_-]?key|authorization)\s*[:=]/i.test(line)
-      ? "[redacted-sensitive-line]"
-      : line
-  )).join("\n");
 }
 
 function boundedText(value, limit) {
@@ -262,7 +255,6 @@ function resolveDefaultPrTarget(root, branch, head, git) {
 
 function resolveGitTarget(mode, root, branch, requested, head, git) {
   if (requested.includes("..")) {
-    git(root, ["rev-list", "--count", requested]);
     return {
       requested: requested,
       resolved_log_target: requested,
@@ -348,6 +340,7 @@ function writingContract(mode) {
 async function prepareGitWriting(options, dependencies) {
   const git = dependencies.git ?? defaultGit;
   const identity = await repositoryIdentity(options.repo, git);
+  const syncPush = options.evidenceProfile === SYNC_PUSH_EVIDENCE_PROFILE;
   const target = resolveGitTarget(
     options.mode,
     identity.root,
@@ -359,18 +352,55 @@ async function prepareGitWriting(options, dependencies) {
   const count = target.single_commit
     ? 1
     : Number(git(identity.root, ["rev-list", "--count", target.resolved_log_target]).out);
+  const maxCommits = syncPush ? 20 : MAX_COMMITS;
   const log = target.single_commit
     ? git(identity.root, [
         "show", "-s", "--format=%H%x09%s", target.resolved_log_target, "--",
       ]).out
     : git(identity.root, [
-        "log", `--max-count=${MAX_COMMITS + 1}`, "--format=%H%x09%s",
+        "log", `--max-count=${maxCommits + 1}`, "--format=%H%x09%s",
         target.resolved_log_target, "--",
       ]).out;
-  const commits = log.split("\n").filter(Boolean).slice(0, MAX_COMMITS).map((line) => {
+  const commits = log.split("\n").filter(Boolean).slice(0, maxCommits).map((line) => {
     const [commit, ...subject] = line.split("\t");
     return { commit, subject: subject.join("\t") };
   });
+  let subjectsTruncated = false;
+  if (syncPush) {
+    for (const item of commits) {
+      item.subject = redactSensitiveLines(item.subject);
+      if (item.subject.length > 256) {
+        item.subject = `${item.subject.slice(0, 256)}…`;
+        subjectsTruncated = true;
+      }
+    }
+    while (Buffer.byteLength(JSON.stringify(commits)) > 4096) commits.pop();
+  }
+  const common = {
+    schema_version: WRITING_EVIDENCE_SCHEMA_VERSION,
+    mode: options.mode,
+    status: "prepared",
+    repository: identity.repository,
+    branch: identity.branch,
+    head: identity.head,
+    target,
+    commit_count: count,
+    commits,
+    commits_truncated: count > commits.length,
+  };
+  const writing = {
+    writing_contract: writingContract(options.mode),
+    suggested_draft_path: suggestedPath(
+      options.mode,
+      identity.branch,
+      dependencies.now ? dependencies.now() : new Date(),
+    ),
+  };
+  if (syncPush) {
+    const evidence = await collectSyncPushEvidence(identity.root, target.resolved_diff_target,
+      { ...common, ...writing, commit_subjects_truncated: subjectsTruncated }, { git, read: dependencies.readPatch });
+    return { ...evidence, evidence_sha256: digest(evidence) };
+  }
   const diffStat = git(identity.root, [
     "diff", "--stat", "--no-renames", "--no-textconv", target.resolved_diff_target, "--",
   ]).out;
@@ -382,26 +412,12 @@ async function prepareGitWriting(options, dependencies) {
     target.resolved_diff_target, "--",
   ]).out, MAX_PATCH_CHARS);
   const evidence = {
-    schema_version: WRITING_EVIDENCE_SCHEMA_VERSION,
-    mode: options.mode,
-    status: "prepared",
-    repository: identity.repository,
-    branch: identity.branch,
-    head: identity.head,
-    target,
-    commit_count: count,
-    commits,
-    commits_truncated: count > MAX_COMMITS,
+    ...common,
     diff_stat: diffStat,
     changed_files: nameStatus.split("\n").filter(Boolean),
     patch_excerpt: patch.text,
     patch_truncated: patch.truncated,
-    writing_contract: writingContract(options.mode),
-    suggested_draft_path: suggestedPath(
-      options.mode,
-      identity.branch,
-      dependencies.now ? dependencies.now() : new Date(),
-    ),
+    ...writing,
   };
   return { ...evidence, evidence_sha256: digest(evidence) };
 }

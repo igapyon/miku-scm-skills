@@ -11,7 +11,7 @@ import {
 } from "../scripts/miku-scm-workflow-manifest.mjs";
 
 test("workflow manifest is versioned and IDs are unique", () => {
-  assert.equal(WORKFLOW_MANIFEST_VERSION, "miku-scm.workflow-manifest/v2");
+  assert.equal(WORKFLOW_MANIFEST_VERSION, "miku-scm.workflow-manifest/v3");
   assert.equal(WORKFLOW_CONTRACT_VERSION, 1);
   const ids = WORKFLOW_MANIFEST.map((entry) => entry.id);
   assert.equal(new Set(ids).size, ids.length);
@@ -28,10 +28,12 @@ test("every routed workflow fixes safety metadata and separates runtime referenc
     assert.equal(entry.contract_id, entry.id);
     const issueWriteContract = entry.id.startsWith("github.issue.") && entry.id !== "github.issue.read";
     const syncVersions = {
-      "repository.sync.pull": 4,
-      "repository.sync.push.prepare": 5,
+      "repository.sync.pull": 5,
+      "repository.sync.push.prepare": 6,
       "repository.sync.push.draft.prepare": 1,
       "repository.sync.push.apply": 4,
+      "repository.done.recover": 3,
+      "repository.post-merge.next-work": 4,
       "pr.publish.preflight": 3,
       "pr.publish.apply": 4,
       "pr.recommit.push": 3,
@@ -55,6 +57,7 @@ test("every routed workflow fixes safety metadata and separates runtime referenc
     const expectedRuntime = entry.id === "repository.sync.pull" ? ["runtime-sync-pull.md"]
       : entry.id.startsWith("repository.sync.push.") ? ["runtime-sync-push.md"]
         : entry.id === "repository.post-merge.next-work" ? ["runtime-post-merge.md"]
+          : entry.id === "repository.done.recover" ? ["runtime-done-recovery.md"]
           : entry.id.startsWith("github.issue.") && entry.id !== "github.issue.read" ? ["runtime-issue-approval.md"] : [];
     assert.deepEqual(entry.runtime_references, expectedRuntime);
     for (const reference of entry.runtime_references) await access(path.join(import.meta.dirname, "..", "references", reference));
