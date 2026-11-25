@@ -62,6 +62,8 @@ test("sync push dirty commits once, prepares evidence, recommits and pushes to d
   assert.equal(p.status, "prepared", JSON.stringify(p)); assert.equal(p.commit.status, "created");
   assert.equal(p.warnings.length, 1);
   assert.equal(p.evidence.commit_count, 1); assert.equal(p.evidence.head, p.head);
+  assert.deepEqual(p.evidence.commits, [{ commit: p.head }]);
+  assert.doesNotMatch(JSON.stringify(p.evidence), /Implement work/);
   const resumed = await prepareSyncPush({ repo: f.repo, resume: p.operation_id, apply: true });
   assert.equal(resumed.status, "prepared", JSON.stringify(resumed)); assert.equal(resumed.plan_sha256, p.plan_sha256); assert.equal(resumed.head, p.head);
   assert.deepEqual(resumed.warnings, p.warnings);
@@ -79,8 +81,9 @@ test("sync push dirty commits once, prepares evidence, recommits and pushes to d
 test("sync push clean committed work skips ordinary commit; empty branch is no-op", async (t) => {
   const f = await fixture(t);
   const empty = await prepareSyncPush(f.options); assert.equal(empty.status, "up-to-date"); assert.equal(empty.mutation_invoked, false);
-  await f.commit("own.txt", "own\n"); const before = f.git(["rev-parse", "HEAD"]);
+  const before = await f.commit("own.txt", "own\n", "Interim subject\n\nInterim body");
   const p = await prepareSyncPush(f.options); assert.equal(p.status, "prepared", JSON.stringify(p)); assert.equal(p.commit.status, "skipped"); assert.equal(p.head, before);
+  assert.doesNotMatch(JSON.stringify(p.evidence), /Interim subject|Interim body/);
 });
 
 test("small sync push requests a patch once and reuses it", async (t) => {

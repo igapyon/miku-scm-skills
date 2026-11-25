@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-export const SYNC_PUSH_EVIDENCE_PROFILE = "sync-push/v1";
+export const SYNC_PUSH_EVIDENCE_PROFILE = "sync-push/v2";
 export const MAX_DETAIL_PATHS = 4;
 const EVIDENCE_BYTES = 32 * 1024;
 const EVIDENCE_RESERVE_BYTES = 256; // Operation suffix and evidence digest added by sync push.

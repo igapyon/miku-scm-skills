@@ -237,7 +237,6 @@ export function runRecommit(args, dependencies = {}) {
       throw new Error(`Could not resolve base from --base, current ${remote} branch upstream, local ${remote}/HEAD, or ${remote}/devel.`);
     }
     const status = runGit(root, ["status", "-sb"]).stdout;
-    const headSummary = runGit(root, ["log", "--oneline", "--decorate", "-1"]).stdout;
     const baseOk = runGit(root, ["rev-parse", "--verify", "--quiet", resolvedBase.base], { allowFailure: true }).ok;
     const baseCommit = baseOk ? runGit(root, ["rev-parse", resolvedBase.base]).stdout : "";
     const headCommit = runGit(root, ["rev-parse", "HEAD"]).stdout;
@@ -245,7 +244,7 @@ export function runRecommit(args, dependencies = {}) {
       ? runGit(root, ["merge-base", "--is-ancestor", resolvedBase.base, "HEAD"], { allowFailure: true }).ok
       : false;
     const collapsedLog = baseOk
-      ? runGit(root, ["log", "--oneline", "--decorate", `${resolvedBase.base}..HEAD`], { allowFailure: true }).stdout
+      ? runGit(root, ["rev-list", `${resolvedBase.base}..HEAD`, "--"], { allowFailure: true }).stdout
       : "";
     const collapsedCount = collapsedLog ? collapsedLog.split("\n").filter(Boolean).length : 0;
     const diffStat = baseOk
@@ -295,7 +294,7 @@ export function runRecommit(args, dependencies = {}) {
       base_exists: baseOk,
       base_is_ancestor: baseIsAncestor,
       head: headCommit,
-      head_summary: headSummary,
+      head_summary: headCommit,
       commits_to_collapse: collapsedCount,
       commits_log: collapsedLog,
       diff_stat: diffStat,

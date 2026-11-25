@@ -41,7 +41,6 @@ function fakeGit() {
       ["rev-parse HEAD", "b".repeat(40)],
       [`rev-parse --verify ${"b".repeat(40)}^{commit}`, "b".repeat(40)],
       [`rev-parse --verify ${"b".repeat(40)}^`, "a".repeat(40)],
-      [`show -s --format=%H%x09%s ${"b".repeat(40)} --`, `${"b".repeat(40)}\tAdd writing evidence`],
       [`diff --stat --no-renames --no-textconv ${"a".repeat(40)}..${"b".repeat(40)} --`, " README.md | 2 ++"],
       [`diff --name-status --no-renames --no-textconv ${"a".repeat(40)}..${"b".repeat(40)} --`, "M\tREADME.md"],
       [`diff --no-ext-diff --no-renames --no-textconv --unified=1 ${"a".repeat(40)}..${"b".repeat(40)} --`, "+token=should-redact\n+safe=true"],
@@ -67,7 +66,7 @@ function multiCommitPrGit() {
       ["rev-parse --verify origin/devel^{commit}", base],
       [`merge-base --is-ancestor ${base} ${head}`, ""],
       [`rev-list --count ${range}`, "2"],
-      [`log --max-count=201 --format=%H%x09%s ${range} --`, `${head}\tSecond change\n${middle}\tFirst change`],
+      [`rev-list --max-count=200 ${range} --`, `${head}\n${middle}`],
       [`diff --stat --no-renames --no-textconv ${range} --`, " src/main.mjs | 4 ++++"],
       [`diff --name-status --no-renames --no-textconv ${range} --`, "M\tsrc/main.mjs"],
       [`diff --no-ext-diff --no-renames --no-textconv --unified=1 ${range} --`, "+first\n+second"],
@@ -94,7 +93,6 @@ function singleCommitPrGit() {
       [`rev-list --count ${range}`, "1"],
       [`rev-parse --verify ${head}^{commit}`, head],
       [`rev-parse --verify ${head}^`, base],
-      [`show -s --format=%H%x09%s ${head} --`, `${head}\tOnly change`],
       [`diff --stat --no-renames --no-textconv ${range} --`, " README.md | 1 +"],
       [`diff --name-status --no-renames --no-textconv ${range} --`, "M\tREADME.md"],
       [`diff --no-ext-diff --no-renames --no-textconv --unified=1 ${range} --`, "+only"],
@@ -158,7 +156,7 @@ test("PR prepare defaults to the complete branch range when two or more commits 
   assert.equal(result.target.recommit_recommended, true);
   assert.equal(result.target.single_commit, false);
   assert.equal(result.commit_count, 2);
-  assert.deepEqual(result.commits.map((commit) => commit.subject), ["Second change", "First change"]);
+  assert.deepEqual(result.commits, [{ commit: "c".repeat(40) }, { commit: "b".repeat(40) }]);
   assert.deepEqual(result.changed_files, ["M\tsrc/main.mjs"]);
 });
 
@@ -173,7 +171,7 @@ test("PR prepare keeps an exactly one-commit branch as a single-commit PR", asyn
   assert.equal(result.target.recommit_recommended, false);
   assert.equal(result.target.single_commit, true);
   assert.equal(result.commit_count, 1);
-  assert.equal(result.commits[0].subject, "Only change");
+  assert.deepEqual(result.commits, [{ commit: "b".repeat(40) }]);
 });
 
 test("PR prepare bounds a patch larger than the former 16 MiB Git buffer", async (t) => {
