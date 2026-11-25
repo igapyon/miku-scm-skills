@@ -311,6 +311,7 @@ function writingContract(mode) {
   if (mode === "pr") {
     return {
       ...shared,
+      source_rule: "Draft from the net diff across the selected range and the user's confirmed purpose. Exclude previous commit messages.",
       output: "First line is the PR title; body uses Overview and Changes sections",
       audience: "reviewers",
     };
@@ -353,28 +354,20 @@ async function prepareGitWriting(options, dependencies) {
     ? 1
     : Number(git(identity.root, ["rev-list", "--count", target.resolved_log_target]).out);
   const maxCommits = syncPush ? 20 : MAX_COMMITS;
-  const log = target.single_commit
-    ? git(identity.root, [
-        "show", "-s", "--format=%H%x09%s", target.resolved_log_target, "--",
-      ]).out
-    : git(identity.root, [
-        "log", `--max-count=${maxCommits + 1}`, "--format=%H%x09%s",
-        target.resolved_log_target, "--",
-      ]).out;
-  const commits = log.split("\n").filter(Boolean).slice(0, maxCommits).map((line) => {
-    const [commit, ...subject] = line.split("\t");
-    return { commit, subject: subject.join("\t") };
-  });
-  let subjectsTruncated = false;
-  if (syncPush) {
-    for (const item of commits) {
-      item.subject = redactSensitiveLines(item.subject);
-      if (item.subject.length > 256) {
-        item.subject = `${item.subject.slice(0, 256)}…`;
-        subjectsTruncated = true;
-      }
+  let commits = [{ commit: target.resolved_log_target }];
+  if (!target.single_commit) {
+    const limit = `--max-count=${maxCommits}`;
+    const range = target.resolved_log_target;
+    if (options.mode === "pr") {
+      const ids = git(identity.root, ["rev-list", limit, range, "--"]).out;
+      commits = ids.split("\n").filter(Boolean).map((commit) => ({ commit }));
+    } else {
+      const log = git(identity.root, ["log", limit, "--format=%H%x09%s", range, "--"]).out;
+      commits = log.split("\n").filter(Boolean).map((line) => {
+        const [commit, ...subject] = line.split("\t");
+        return { commit, subject: subject.join("\t") };
+      });
     }
-    while (Buffer.byteLength(JSON.stringify(commits)) > 4096) commits.pop();
   }
   const common = {
     schema_version: WRITING_EVIDENCE_SCHEMA_VERSION,
@@ -398,7 +391,7 @@ async function prepareGitWriting(options, dependencies) {
   };
   if (syncPush) {
     const evidence = await collectSyncPushEvidence(identity.root, target.resolved_diff_target,
-      { ...common, ...writing, commit_subjects_truncated: subjectsTruncated }, { git, read: dependencies.readPatch });
+      { ...common, ...writing }, { git, read: dependencies.readPatch });
     return { ...evidence, evidence_sha256: digest(evidence) };
   }
   const diffStat = git(identity.root, [

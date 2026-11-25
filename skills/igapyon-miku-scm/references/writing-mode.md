@@ -14,6 +14,11 @@ truncation fields, a mode-specific writing contract, and a suggested draft
 path. The Agent drafts once from that result and the user's direction. It does
 not run an automatic second drafting pass or a separate AI review.
 
+For PR drafts, including recommit and sync push, write from the net diff
+across the selected range and the purpose confirmed by the user. Use commit
+IDs to identify the range. Exclude the original commit subjects and bodies
+from the writing evidence and the draft.
+
 When PR mode has no explicit target, resolve the same default base used by PR
 Soft Reset Recommit. If the branch is two or more commits ahead of that base,
 collect evidence from the complete `<base>..HEAD` range and mark recommit as

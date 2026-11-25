@@ -37,7 +37,7 @@ async function scenario(t) {
   git(root, "switch", "-c", "devel-tiga0727weg");
   await writeFile(path.join(root, "feature.txt"), "feature\n", "utf8");
   git(root, "add", "feature.txt");
-  git(root, "commit", "-m", "feature");
+  git(root, "commit", "-m", "Interim commit subject", "-m", "Interim commit body");
   const oldHead = git(root, "rev-parse", "HEAD");
   const draft = "workplace/miku-scm/pr-drafts/pr-devel-tiga0727weg-202607272300.md";
   await mkdir(path.join(root, path.dirname(draft)), { recursive: true });
@@ -60,6 +60,8 @@ test("recommit workflow preserves preflight and mutation safety", async (t) => {
     assert.equal(result.status, "preflight-ok");
     assert.equal(result.readonly, true);
     assert.equal(result.commits_to_collapse, 1);
+    assert.equal(result.commits_log, state.oldHead);
+    assert.doesNotMatch(JSON.stringify(result), /Interim commit subject|Interim commit body/);
     assert.match(result.pr_draft_sha256, /^[0-9a-f]{64}$/);
     assert.equal(result.backup_branch, "backup/2026-07-27-2300");
     assert.equal(git(state.root, "rev-parse", "HEAD"), state.oldHead);

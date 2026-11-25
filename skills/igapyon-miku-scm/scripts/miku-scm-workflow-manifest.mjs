@@ -245,7 +245,7 @@ const WORKFLOW_DEFINITIONS = [
   },
   {
     id: "repository.sync.push.prepare",
-    contract_version: 6,
+    contract_version: 7,
     triggers: ["miku-scm sync push", "sync push"],
     required_parameters: ["repository", "explicit_sync_push_request"],
     mutation_level: "local",
@@ -338,6 +338,7 @@ const WORKFLOW_DEFINITIONS = [
   },
   {
     id: "pr.recommit.preflight",
+    contract_version: 2,
     triggers: ["recommit", "PR recommit", "PR recommit事前確認", "PR soft reset確認"],
     required_parameters: ["repository"],
     mutation_level: "readonly",
@@ -347,6 +348,7 @@ const WORKFLOW_DEFINITIONS = [
   },
   {
     id: "pr.recommit.apply",
+    contract_version: 2,
     triggers: ["miku-scm pr recommit", "PR soft reset recommit"],
     required_parameters: ["repository", "base", "pr_draft", "explicit_local_rewrite_request"],
     mutation_level: "local",
@@ -400,6 +402,7 @@ const WORKFLOW_DEFINITIONS = [
   },
   {
     id: "writing.pr.prepare",
+    contract_version: 2,
     triggers: ["PR文面準備", "PR writing evidence", "recommit向けPR文面準備"],
     required_parameters: ["repository"],
     mutation_level: "readonly",

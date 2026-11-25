@@ -24,7 +24,7 @@ Do not invoke a free-form Git sequence around the runner.
 
 - Require an explicit user request before running Git commands that rewrite the current commit state.
 - Inspect `git status -sb` before changing anything.
-- Inspect the commits that would be collapsed with `git log --oneline --decorate <base>..HEAD`.
+- Identify the commits that would be collapsed with `git rev-list <base>..HEAD`.
 - Inspect the change size with `git diff --stat <base>...HEAD` or another appropriate diff command before resetting.
 - Create a local backup branch at the current `HEAD` immediately before running `git reset --soft`, using [github-backup-branch.md](github-backup-branch.md).
 - Do not proceed to `git reset --soft` if backup branch creation fails.
@@ -46,7 +46,7 @@ This workflow has two required inputs:
 
 The PR draft file must contain the inner Markdown draft, without the outer `~~~~markdown` wrapper.
 
-In this mode, the PR draft must be based on the exact `<base>..HEAD` range shown by preflight. It must cover every material change group in `Commits To Collapse` and `Diff Stat`; a draft based only on the latest commit is invalid when multiple commits will be collapsed.
+Base the PR draft on the net diff across the exact `<base>..HEAD` range shown by preflight. Cover every material change in that diff and use the confirmed purpose of the change. Exclude the subjects and bodies of the original commits.
 
 If a bare `recommit` request has no saved matching PR draft, treat PR mode as implicit: collect `writing.pr.prepare` evidence for exactly `<base>..HEAD`, draft and save the PR text, and then continue to recommit preflight in the same conversational workflow. Do not stop merely to ask the user to request PR writing separately. Do not use `mktemp`, inline heredoc, or `cat <<EOF` as a fallback. Draft creation still does not authorize the local history rewrite.
 
@@ -154,7 +154,7 @@ PR_DRAFT=workplace/miku-scm/pr-drafts/pr-devel-YYYYMMDDHHMM.md
 
 git status -sb
 git fetch origin
-git log --oneline --decorate "$BASE"..HEAD
+git rev-list "$BASE"..HEAD
 git diff --stat "$BASE"...HEAD
 git branch backup/<YYYY-MM-DD-HHMM> HEAD && git reset --soft "$BASE"
 git commit -F "$PR_DRAFT"

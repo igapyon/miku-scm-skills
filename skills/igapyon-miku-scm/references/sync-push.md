@@ -72,13 +72,15 @@ ordinary commit and prepared operation intact.
 
 ### PR evidence
 
-The Node runner collects change statistics across the pinned base and HEAD.
+The Node runner collects commit IDs and change statistics across the pinned
+base and HEAD. Compose the draft from the net diff and the confirmed purpose
+of the change. Exclude the subjects and bodies of the original commits.
 For up to 12 files and 400 changed lines, it tries one patch with a 24 KiB
 output limit and reuses that patch if it fits. Other changes get totals,
 representative paths grouped by directory, omitted counts, and short excerpts
 from up to six files. Generated or lock files and binary files count in the
 totals. The initial evidence is limited to 32 KiB of compact UTF-8 JSON,
-including subjects, paths, excerpts and the evidence digest. The outer
+including commit IDs, paths, excerpts and the evidence digest. The outer
 runner envelope and formatted console output have their own overhead.
 Successful prepare returns the ordinary commit status, path count, checks
 and version notice. Its full commit result remains in the operation record.

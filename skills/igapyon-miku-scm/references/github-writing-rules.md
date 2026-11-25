@@ -39,13 +39,15 @@ For PR text, a request that says `対象コミット <commit> における変更
 
 For Release text, a start commit ID implies `from <start> through HEAD, including <start>`. Inspect `<start>^..HEAD` unless the user explicitly provides another range.
 
-After resolving the target, inspect the requested evidence.
+After resolving the target, inspect the requested evidence. For PR drafts, use
+commit IDs to identify revisions and the net diff to describe their changes.
+Exclude the original subjects and bodies.
 
 For a PR request without an explicit target, first resolve and inspect the
 branch range:
 
 ```sh
-git log --oneline --decorate <base>..HEAD
+git rev-list <base>..HEAD
 git diff --stat --no-renames <base>...HEAD
 ```
 
@@ -58,15 +60,15 @@ latest request omits the target.
 For a single commit:
 
 ```sh
-git show --stat --oneline --no-renames <commit>
-git show --no-ext-diff --no-renames --format=fuller --name-only <commit>
-git show --no-ext-diff --no-renames <commit>
+git show --format= --stat --no-renames <commit>
+git show --format= --no-ext-diff --no-renames --name-only <commit>
+git show --format= --no-ext-diff --no-renames <commit>
 ```
 
 For a commit range:
 
 ```sh
-git log --oneline --no-decorate <range>
+git rev-list <range>
 git diff --stat --no-renames <range>
 git diff --no-ext-diff --no-renames <range>
 ```
