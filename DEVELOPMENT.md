@@ -15,7 +15,7 @@ Use Node.js 22 or newer and Git. Use Node.js 26 for the reproducible release-bui
 
 ## Versioning
 
-The repository uses Semantic Versioning (`MAJOR.MINOR.PATCH`), with `package.json` as the authoritative version. The root `mikuScm.version` declaration identifies that policy for miku-scm workflows. Keep the top-level and root-package values in `package-lock.json` and the `PRODUCT_VERSION` values in both Skill runners aligned with it. Release tags use `v<version>`; for the current development version `0.9.0`, the intended release tag is `v0.9.0`. `npm run check:version` validates the package, lockfile, and both Skill runner versions.
+The repository uses Semantic Versioning (`MAJOR.MINOR.PATCH`), with `package.json` as the authoritative version. The root `mikuScm.version` declaration identifies that policy for miku-scm workflows. Keep the top-level and root-package values in `package-lock.json` and the `PRODUCT_VERSION` values in both Skill runners aligned with it. Release tags use `v<version>`; for the current development version `0.9.1`, the intended release tag is `v0.9.1`. `npm run check:version` validates the package, lockfile, and both Skill runner versions.
 
 ## Commands
 
