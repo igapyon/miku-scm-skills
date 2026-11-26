@@ -9,6 +9,8 @@ import { runRecommitPush } from "./pr-recommit-push.mjs";
 import { workflowContractById } from "./miku-scm-workflow-contract-lock.mjs";
 import { platformWarnings } from "./miku-scm-command-runner.mjs";
 import { assertNotDoneRescueBranch } from "./miku-scm-rescue-branch.mjs";
+import { repositoryFromRemote } from "./miku-scm-repository.mjs";
+import { completeSyncDraftPr } from "./miku-scm-sync-draft-pr.mjs";
 import { ancestor, assertIdle, assertRemote, assertSnapshot, beforeAction, branch, checkPending, checkedId, failure, fetchBase, hash, head, loadOperation, newId, newOperation, openSync, operationPath, pendingOperations, readJson, remoteState, requireFetchBranch, resolveBase, saveOperation, snapshot, writeJson } from "./miku-scm-sync-state.mjs";
 
 export function parseArgs(mode, argv, cwd = process.cwd()) {
@@ -16,6 +18,26 @@ export function parseArgs(mode, argv, cwd = process.cwd()) {
   const readonly = mode === "draft.prepare" || mode === "evidence.read";
   if (mode === "evidence.read") o.paths = [];
   const common = { "--repo": "repo" };
+  if (mode === "pr.resume") {
+    const seen = new Set();
+    for (let i = 0; i < argv.length; i++) {
+      const arg = argv[i];
+      if (seen.has(arg)) throw new Error(`Duplicate argument: ${arg}`);
+      if (["--help", "-h", "--apply"].includes(arg)) {
+        seen.add(arg);
+        if (arg === "--help" || arg === "-h") o.help = true;
+        else o.apply = true;
+      } else if (arg === "--repo" || arg === "--operation") {
+        seen.add(arg);
+        if (!argv[i + 1] || argv[i + 1].startsWith("--")) throw new Error(`Missing value: ${arg}`);
+        o[arg === "--repo" ? "repo" : "operation"] = argv[++i];
+      } else throw new Error(`Unknown argument: ${arg}`);
+    }
+    if (o.help) return o;
+    if (!o.apply) throw new Error("sync push PR resume requires --apply");
+    checkedId(o.operation);
+    return o;
+  }
   const fields = mode === "prepare" ? { ...common, "--remote": "remote", "--base": "base", "--message": "message", "--resume": "resume", "--cancel": "cancel", "--recover": "recover" }
     : readonly ? { ...common, "--operation": "operation", "--expected-plan-sha256": "expectedPlanSha256" }
       : { ...common, "--operation": "operation", "--expected-plan-sha256": "expectedPlanSha256", "--pr-draft": "prDraft", "--expected-draft-sha256": "expectedDraftSha256" };
@@ -474,15 +496,61 @@ export async function applySyncPush(options, dependencies = {}) {
     attemptOwned = true;
     op.status = "applying";
     await beforeAction(ctx, op, "recommit-push");
-    const delegate = await (dependencies.recommitPush ?? runRecommitPush)({ repo: ctx.root, remote: plan.remote.name, base: plan.base.ref, prDraft: options.prDraft, apply: true }, { ...dependencies.recommitPushDependencies, platform, validateSyncSnapshot, validateSyncRecommit, expectedPublication: plan.publication_expectation });
+    const delegate = await (dependencies.recommitPush ?? runRecommitPush)({ repo: ctx.root, remote: plan.remote.name, base: plan.base.ref, prDraft: options.prDraft, apply: true }, { ...dependencies.recommitPushDependencies, publishDependencies: { ...dependencies.recommitPushDependencies?.publishDependencies, deferPrHandoff: true }, platform, validateSyncSnapshot, validateSyncRecommit, expectedPublication: plan.publication_expectation });
     op.delegate = delegate;
     if (delegate.mutation_invoked === false && delegate.status !== "published" && await retainPreparation(delegate.reason ?? "Publication stopped before recommit")) {
       return { ...delegate, status: "not-applied", operation_id: op.id, commit: op.commit, publication_state: "not-started", next_command: "miku-scm sync push", next_action: "Resolve the reported preflight problem, then repeat miku-scm sync push. The preparation is retained.", mutation_invoked: false };
     }
     op.mutation_invoked = Boolean(op.mutation_invoked || delegate.mutation_invoked);
     op.status = delegate.status === "published" ? "completed" : delegate.mutation_invoked ? "partial" : "rejected";
+    if (delegate.status === "published") {
+      const publication = delegate.publication ?? delegate;
+      const publishedBranch = delegate.branch;
+      const pushedHead = delegate.new_head ?? publication.head;
+      if (publication.comparison !== "0 0" || publication.pushed_branch !== publishedBranch
+        || publication.final_branch !== `${publishedBranch}-done` || publication.head !== pushedHead
+        || op.recommitted_head !== pushedHead || delegate.final_branch !== `${publishedBranch}-done`) {
+        op.draft_pr = { schema_version: 1, status: "not-created", target: null, attempt: null, reason: "push-postcondition-mismatch" };
+        await saveOperation(ctx, op);
+        return { ...delegate, status: "partial", publication_state: "published", pr_status: "not-created",
+          pr_reason: "push-postcondition-mismatch", mutation_invoked: true, operation_id: op.id, commit: op.commit,
+          stage: "draft-pr", next_action: "The Git push was verified, but the saved publication identity did not match the PR target. Inspect the operation before continuing." };
+      }
+      const remoteUrl = ctx.git(ctx.root, ["remote", "get-url", "--all", plan.remote.name]).out.trim();
+      const parsedRepository = repositoryFromRemote(remoteUrl);
+      const target = {
+        operation: op.id,
+        plan_sha256: op.plan_sha256,
+        remote: plan.remote.name,
+        remote_digest: plan.remote.digest,
+        repository: parsedRepository ? { host: parsedRepository.host, owner: parsedRepository.owner,
+          repository: parsedRepository.repository, full_name: parsedRepository.full_name, url: parsedRepository.url } : null,
+        branch: publishedBranch,
+        done_branch: `${publishedBranch}-done`,
+        head: pushedHead,
+        backup_branch: delegate.backup_branch,
+        backup_head: plan.snapshot.head,
+        base: plan.base.name,
+        draft_path: plan.draft_path,
+        draft_sha256: options.expectedDraftSha256,
+      };
+      op.draft_pr = { schema_version: 1, status: parsedRepository ? "ready" : "skipped", target, attempt: null,
+        ...(!parsedRepository ? { reason: "unsupported-remote" } : {}) };
+    }
     await saveOperation(ctx, op);
     const retryable = delegate.publication?.stage === "publication-preflight" && delegate.publication?.push_started === false;
+    if (delegate.status === "published") {
+      const pr = await completeSyncDraftPr(ctx, op, { allowCreate: true }, {
+        ...dependencies.draftPrDependencies,
+        platform,
+        readDraft: (relative) => draftBytes(ctx, relative),
+      });
+      const publication = { ...(delegate.publication ?? {}), pr_lookup: pr.pr_status,
+        ...(pr.pr_url ? { pr_url: pr.pr_url } : {}), pr_creation_url: pr.pr_manual_url,
+        ...(pr.pr_related_urls ? { pr_urls: pr.pr_related_urls } : {}), pull_request_mutation: pr.pull_request_mutation };
+      return { ...delegate, ...pr, publication, warnings: [...new Set([...(op.warnings ?? []), ...ctx.warnings, ...(delegate.warnings ?? [])])],
+        operation_id: op.id, commit: op.commit, stage: "draft-pr", mutation_invoked: true };
+    }
     return { ...delegate, warnings: [...new Set([...(op.warnings ?? []), ...ctx.warnings, ...(delegate.warnings ?? [])])], operation_id: op.id, commit: op.commit, stage: "recommit-push", mutation_invoked: op.mutation_invoked,
       ...(retryable ? { publication_state: "not-started", next_command: "miku-scm sync push", next_action: "Resolve the reported storage/preflight problem, then repeat miku-scm sync push. The helper will verify and recover the unpublished work." } : {}) };
   } catch (error) {
@@ -494,5 +562,57 @@ export async function applySyncPush(options, dependencies = {}) {
     const r = await failure(ctx, op, error);
     if (error.mutationInvoked === null) { op.status = "unresolved"; await saveOperation(ctx, op); return { ...r, status: "unresolved", mutation_invoked: null, next_action: "Inspect the saved publication attempt; do not resend automatically" }; }
     return { ...r, commit: op?.commit };
+  } finally { await release(); }
+}
+
+export async function resumeSyncPushPr(options, dependencies = {}) {
+  const { ctx, release } = await openSync(options.repo, dependencies, options.operation, true, { existingStorageOnly: true });
+  let pushConfirmed = false;
+  try {
+    const op = await loadOperation(ctx, options.operation);
+    if (op.type !== "push" || op.status !== "completed" || !op.apply_started || !op.draft_pr) throw new Error("This operation has no completed sync-push PR stage to resume");
+    const plan = await readPlan(ctx, op);
+    const target = op.draft_pr.target;
+    const delegate = op.delegate ?? {};
+    const publication = delegate.publication ?? delegate;
+    if (!plan || hash(plan) !== op.plan_sha256 || plan.operation !== op.id || plan.root !== ctx.root || plan.common !== ctx.common
+      || !target || target.operation !== op.id || target.plan_sha256 !== op.plan_sha256
+      || target.remote !== op.remote.name || target.remote_digest !== op.remote.digest
+      || target.backup_branch !== op.backup_branch || target.backup_branch !== delegate.backup_branch
+      || target.backup_head !== plan.snapshot.head
+      || target.branch !== plan.snapshot.branch || target.base !== plan.base.name || target.draft_path !== plan.draft_path
+      || target.remote_digest !== plan.remote.digest || delegate.status !== "published"
+      || target.head !== op.recommitted_head || target.head !== delegate.new_head || target.head !== publication.head || publication.comparison !== "0 0"
+      || publication.pushed_branch !== target.branch || publication.final_branch !== target.done_branch) {
+      throw new Error("Saved publication receipt or PR target does not match the completed sync operation");
+    }
+    pushConfirmed = true;
+    assertRemote(ctx, op.remote, true);
+    const currentUrl = ctx.git(ctx.root, ["remote", "get-url", "--all", op.remote.name]).out.trim();
+    const currentRepository = repositoryFromRemote(currentUrl);
+    if ((target.repository && (!currentRepository || currentRepository.host !== target.repository.host
+      || currentRepository.full_name.toLowerCase() !== target.repository.full_name.toLowerCase()
+      || currentRepository.url !== target.repository.url))
+      || (!target.repository && currentRepository)) throw new Error("Selected remote no longer identifies the saved PR repository");
+    if (branch(ctx) !== target.done_branch || head(ctx).toLowerCase() !== target.head.toLowerCase()) throw new Error("Resume only works from the exact published -done branch and HEAD");
+    const backup = ctx.git(ctx.root, ["rev-parse", "--verify", `refs/heads/${target.backup_branch}`], { allowFailure: true });
+    if (!backup.ok || backup.out.toLowerCase() !== target.backup_head.toLowerCase()) throw new Error("Saved recommit backup no longer matches the prepared HEAD");
+    const pr = await completeSyncDraftPr(ctx, op, { allowCreate: true }, {
+      ...dependencies.draftPrDependencies,
+      platform: dependencies.platform ?? process.platform,
+      readDraft: (relative) => draftBytes(ctx, relative),
+    });
+    const publicationResult = { ...(delegate.publication ?? {}), pr_lookup: pr.pr_status,
+      ...(pr.pr_url ? { pr_url: pr.pr_url } : {}), pr_creation_url: pr.pr_manual_url,
+      ...(pr.pr_related_urls ? { pr_urls: pr.pr_related_urls } : {}), pull_request_mutation: pr.pull_request_mutation };
+    return { ...delegate, ...pr, publication: publicationResult, publication_state: "published", operation_id: op.id,
+      commit: op.commit, stage: "draft-pr-resume", mutation_invoked: pr.pull_request_mutation };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { status: "not-applied", ...(pushConfirmed ? { publication_state: "published", pr_status: "not-created", pr_reason: "resume-validation-failed" } : {}),
+      reason: detail, operation_id: options.operation, mutation_invoked: false,
+      next_action: pushConfirmed
+        ? "The completed Git push remains recorded. Return to its saved -done branch and verify the operation identity before resuming PR handling."
+        : "No publication receipt was confirmed for this operation ID. Inspect the saved sync state before taking further action." };
   } finally { await release(); }
 }

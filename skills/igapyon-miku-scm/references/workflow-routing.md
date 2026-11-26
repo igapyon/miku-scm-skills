@@ -42,9 +42,17 @@ Agent-authored draft from the returned evidence, then the read-only
 It validates the saved draft bytes and returns the exact
 `repository.sync.push.apply` workflow ID and argument array. Only `prepared`
 advances to drafting; other results stop, including an `up-to-date` result that
-needs no publication. A changed base requires an explicit `sync pull` request
+needs no publication. Apply creates or verifies a Draft PR after the push is
+confirmed. If `gh` is unavailable, it returns a manual comparison URL and the
+saved draft path. A changed base requires an explicit `sync pull` request
 and fresh push preparation, while preserving any ordinary commit already made.
 No intermediate success confirmation is needed.
+
+An explicit `sync push --resume-pr <operation-id>` request routes only to
+`repository.sync.push.pr.resume --repo <path> --operation <id> --apply`. It
+requires the same completed operation and exact published `-done` checkout.
+When an earlier create may have run, resume performs READONLY reconciliation
+and never creates again.
 Explanations about these commands do not execute them. See [sync-pull.md](sync-pull.md) and
 [sync-push.md](sync-push.md) for exceptions/recovery.
 

@@ -14,10 +14,16 @@ test("sync routes keep separate local prepare and remote apply gates", () => {
   assert.equal(registry.get("repository.sync.push.draft.prepare").mutationLevel, "readonly");
   assert.equal(registry.get("repository.sync.push.draft.prepare").approvalGate, "preflight");
   assert.equal(registry.get("repository.sync.push.apply").mutationLevel, "remote");
+  assert.equal(registry.get("repository.sync.push.pr.resume").mutationLevel, "remote");
+  assert.equal(registry.get("repository.sync.push.pr.resume").approvalGate, "apply");
   assert.throws(() => parsePull([]), /requires/);
   assert.throws(() => parsePush("prepare", []), /requires/);
   assert.throws(() => parsePush("apply", ["--apply"]), /operation ID/);
   assert.throws(() => parsePush("draft.prepare", ["--operation", "00000000-0000-4000-8000-000000000000", "--expected-plan-sha256", "a".repeat(64), "--apply"]), /read-only/);
+  assert.throws(() => parsePush("pr.resume", ["--operation", "00000000-0000-4000-8000-000000000000"]), /requires --apply/);
+  assert.throws(() => parsePush("pr.resume", ["--operation", "00000000-0000-4000-8000-000000000000", "--base", "devel", "--apply"]), /Unknown argument/);
+  assert.equal(parsePush("pr.resume", ["--operation", "00000000-0000-4000-8000-000000000000", "--apply"]).operation,
+    "00000000-0000-4000-8000-000000000000");
   assert.equal(parsePull(["--apply", "--confirm-merged", "saved-id"]).confirmMerged, "saved-id");
   assert.throws(() => parsePull(["--apply", "--confirm-merged", "saved-id", "--resume", "other-id"]), /cannot be combined/);
   assert.throws(() => parsePull(["--apply", "--confirm-merged", "saved-id", "--base", "main"]), /saved remote and base/);

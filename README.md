@@ -20,7 +20,7 @@ miku-scm sync push
 | Request | Sync direction | What it does |
 | --- | --- | --- |
 | `miku-scm sync pull` | Shared base → local work branch | Bring in shared changes while preserving local work when the checks allow it. After a PR is merged, prepare the next work branch. |
-| `miku-scm sync push` | Local work → remote work branch | Commit changes when needed, prepare PR text, back up and consolidate commits, then push and verify the result. |
+| `miku-scm sync push` | Local work → remote work branch | Commit changes when needed, prepare PR text, back up and consolidate commits, push and verify the result, then create or verify a Draft PR. |
 
 Pull to bring in shared changes, make your changes, then push to send your work. The Skill handles the required sequence of Git operations for each request.
 
@@ -34,7 +34,7 @@ One `miku-scm sync push` request connects these steps:
 4. Push to the work branch after checking the expected remote state, verify the result, and mark the local branch with `-done`.
 5. Return the PR creation URL and saved draft for your review.
 
-You create and merge the PR in GitHub. After merging, ask `miku-scm sync pull` again: it checks the merged PR and updated base before creating the next work branch. If PR information is unavailable, it requests confirmation for the exact saved branch and commit.
+The helper creates a Draft PR after it verifies the push, when `gh` is installed and can access the repository. If `gh` is not on PATH, push still completes and the result includes the saved draft path and manual compare URL. You review and merge the PR in GitHub. After merging, ask `miku-scm sync pull` again: it checks the merged PR and updated base before creating the next work branch. If PR creation has an uncertain result, resume only its saved operation with `repository.sync.push.pr.resume`; it will reconcile by reading and will not create a duplicate PR.
 
 `sync push` includes **all ordinary non-ignored staged, unstaged, and untracked changes**, including work outside the latest request. Potentially sensitive paths require separate consent. If the shared base has advanced, it stops and asks for `sync pull`; it does not silently pull or increment a version. With nothing to publish, it returns `up-to-date`.
 
@@ -86,7 +86,7 @@ See [INSTALL.md](INSTALL.md) for installation steps. After installation, use the
 ## Requirements
 
 - Node.js 22 or newer is required by the included runners. Git is required by both Skills.
-- `miku-scm sync pull` requires Git 2.45 or newer. GitHub CLI availability is workflow-specific; Issue operations require existing `gh` authentication, while ordinary sync uses existing Git authentication.
+- `miku-scm sync pull` requires Git 2.45 or newer. GitHub CLI availability is workflow-specific; Issue operations require existing `gh` authentication. Sync push uses existing Git authentication and creates a Draft PR when `gh` is on PATH and authenticated.
 - `igapyon-github-writer` uses local Git evidence only and prohibits `gh`.
 - Installing a released ZIP does not require npm dependencies. Repository tests and bundle generation use Node.js built-ins and system `zip` / `unzip` tools.
 
@@ -114,7 +114,7 @@ miku-scm sync push
 | 依頼 | 同期の方向 | 実行すること |
 | --- | --- | --- |
 | `miku-scm sync pull` | 共有ベース → ローカルの作業ブランチ | 確認条件を満たす場合に、ローカルの作業を保ちながら共有された変更を取り込みます。PRのマージ後には、次の作業ブランチを準備します。 |
-| `miku-scm sync push` | ローカルの作業 → リモートの作業ブランチ | 必要に応じてコミットし、PR文面を作成して、バックアップとコミットの集約を経てpushし、結果を確認します。 |
+| `miku-scm sync push` | ローカルの作業 → リモートの作業ブランチ | 必要に応じてコミットし、PR文面を作成して、バックアップとコミットの集約を経てpushし、結果を確認してからDraft PRを作成または確認します。 |
 
 pullで共有された変更を取り込み、作業を加えたらpushで送る。それぞれの依頼に必要な一連のGit操作をSkillが担当します。
 
@@ -128,7 +128,7 @@ pullで共有された変更を取り込み、作業を加えたらpushで送る
 4. リモートの状態が想定どおりか確認して作業ブランチへpushし、結果を確認して、ローカルのブランチ名に `-done` を付けます。
 5. 確認用に、PR作成URLと保存した下書きを返します。
 
-PRの作成とマージは、利用者がGitHub上で行います。マージ後にもう一度 `miku-scm sync pull` と依頼すると、マージ済みのPRと更新されたベースを確認してから、次の作業ブランチを作成します。PR情報を取得できない場合は、保存された対象ブランチとコミットを示して、利用者に確認を求めます。
+pushの確認後、`gh` がインストールされ、リポジトリにアクセスできる場合は、ヘルパーがDraft PRを作成します。`gh` がPATHにない場合もpushは完了し、保存した文面のパスと手動作成用の比較URLを返します。利用者はGitHub上でPRをレビューしてマージします。マージ後にもう一度 `miku-scm sync pull` と依頼すると、マージ済みのPRと更新されたベースを確認してから、次の作業ブランチを作成します。PR作成結果が不明な場合は、`repository.sync.push.pr.resume` で同じ操作の照合だけを再開します。この再開では重複するPRを作成しません。
 
 `sync push` は、最新の依頼以外の作業も含め、**ignore対象を除く通常の変更を、ステージ済み・未ステージ・未追跡のすべてについて対象にします**。機密情報を含む可能性があるパスには、別途同意が必要です。共有ベースブランチが進んでいる場合は停止して `sync pull` を案内し、暗黙のpullやバージョン更新は行いません。pushする変更がなければ `up-to-date` を返します。
 
@@ -180,7 +180,7 @@ skills/igapyon-github-writer/
 ## 動作要件
 
 - 同梱の実行スクリプトにはNode.js 22以降が必要です。どちらのSkillにもGitが必要です。
-- `miku-scm sync pull` にはGit 2.45以降が必要です。GitHub CLIの必要性はワークフローによって異なります。Issue操作には設定済みの `gh` 認証を使い、通常の同期には設定済みのGit認証を使います。
+- `miku-scm sync pull` にはGit 2.45以降が必要です。Issue操作では設定済みの `gh` 認証を使います。sync pushでは設定済みのGit認証でpushし、PATH上に `gh` があり認証済みならDraft PRを作成します。
 - `igapyon-github-writer` はローカルのGit情報だけを使い、`gh` は実行しません。
 - リリースされたZIPからのインストールにnpm依存パッケージは不要です。リポジトリのテストと配布物の生成には、Node.js標準機能とシステムの `zip` / `unzip` を使います。
 

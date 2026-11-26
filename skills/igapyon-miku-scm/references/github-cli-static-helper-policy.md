@@ -110,6 +110,38 @@ fields, headers, or user-provided command fragments. The fixed helper derives
 `--hostname` only from the selected repository; it is not a pass-through option.
 Apply a 15-second process timeout and stop further PR reads after the first failure.
 
+## Sync Push Draft PR Commands
+
+The `miku-scm sync push` workflow uses the tracked
+[`miku-scm-sync-draft-pr.mjs`](../scripts/miku-scm-sync-draft-pr.mjs) helper
+only after the Git push, remote comparison, local `-done` rename, and completed
+operation record have been verified and saved. Its complete `gh` command
+surface is:
+
+```text
+gh api --method GET repos/<owner>/<repo>/pulls --hostname <selected-host> -f state=all -f head=<owner>:<published-branch> -f per_page=100
+gh api --method GET repos/<owner>/<repo>/pulls/<positive-number> --hostname <selected-host>
+gh pr create --draft --repo <[host/]owner/repo> --head <published-branch> --base <saved-base> --title <saved-title> --body-file <private-temporary-file>
+```
+
+The list is limited to 100 items; reaching the limit or receiving incomplete
+metadata cannot establish absence. Compare the exact base repository, base ref,
+head repository, head ref, and full head SHA. Read the matching PR detail before
+reporting success. The create command is permitted only after the verified list
+contains no matching PR or conflicting open/closed-unmerged PR, the remote
+configuration is unchanged, the remote head equals the saved SHA, the base ref
+exists, and the saved draft digest still matches. The helper passes an explicit
+head and base so `gh` does not infer them from the `-done` checkout.
+
+Disable prompts with `GH_PROMPT_DISABLED=1`, use an argv array without a shell,
+and apply a 15-second timeout to each child process. If `gh` is missing, skip
+creation and return the manual compare URL plus saved draft path. Persist the
+create attempt before invoking the mutation. After any possible create attempt,
+resume performs only the fixed PR GET commands; it never sends a second create.
+An exit-zero response alone is not success: confirm the PR number and URL,
+repository, head/base refs, full head SHA, open state, and `draft: true` in the
+detail response.
+
 ## Failure Semantics
 
 The separate [sync-pull.md](sync-pull.md) helper may use its two fixed PR GET

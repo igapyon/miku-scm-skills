@@ -33,7 +33,7 @@ import {
 } from "./github-issue-close.mjs";
 import { relativeOperationalPath } from "./miku-scm-operational-path.mjs";
 import { parseArgs as parseSyncPullArgs, runSyncPull } from "./sync-pull.mjs";
-import { parseArgs as parseSyncPushArgs, prepareSyncPush, prepareSyncPushDraft, readSyncPushEvidence, applySyncPush } from "./sync-push.mjs";
+import { parseArgs as parseSyncPushArgs, prepareSyncPush, prepareSyncPushDraft, readSyncPushEvidence, applySyncPush, resumeSyncPushPr } from "./sync-push.mjs";
 import {
   applyMaintenancePlan,
   diagnose as diagnoseMaintenance,
@@ -116,7 +116,7 @@ import { failureEvent } from "./miku-scm-observability.mjs";
 
 export const RUNNER_SCHEMA_VERSION = "miku-scm.runner/v1";
 export const RESULT_SCHEMA_VERSION = "miku-scm.runner-result/v1";
-export const PRODUCT_VERSION = "0.9.2";
+export const PRODUCT_VERSION = "0.9.3";
 
 const ISSUE_APPLY_WORKFLOWS = new Set([
   "github.issue.create.apply",
@@ -689,6 +689,14 @@ export function workflowRegistry(dependencies = {}) {
           : mode === "push.draft.prepare" ? prepareSyncPushDraft(options, dependencies.syncPushDependencies)
             : applySyncPush(options, dependencies.syncPushDependencies),
     }]),
+    ["repository.sync.push.pr.resume", {
+      version: 1,
+      mutationLevel: "remote",
+      approvalGate: "apply",
+      parse: (argv, cwd) => parseSyncPushArgs("pr.resume", argv, cwd),
+      plan: (options) => ({ operation: "sync-push-pr-resume", repository: path.resolve(options.repo), operation_id: options.operation, mutation_invocation_allowed: true }),
+      execute: (options) => resumeSyncPushPr(options, dependencies.syncPushDependencies),
+    }],
     ["repository.sync.push.evidence.read", {
       version: 1,
       mutationLevel: "readonly",

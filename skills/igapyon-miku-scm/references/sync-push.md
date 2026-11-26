@@ -1,9 +1,10 @@
 # Sync push
 
 An exact `miku-scm sync push` request authorizes one compound workflow:
-necessary `work.commit`, one evidence-based PR draft, then the existing
-recommit/push transition. It does not increment versions, pull/rebase, create
-or merge a PR, or create a tag/Release. `draft recommit push` and its
+necessary `work.commit`, one evidence-based PR draft, recommit/push, and one
+verified GitHub Draft PR when `gh` is available. It does not increment
+versions, pull/rebase, mark a PR ready, merge a PR, or create a tag/Release.
+`draft recommit push` and its
 `pr recommit push` alias keep their existing meaning without an ordinary
 commit stage.
 
@@ -61,14 +62,16 @@ recommit, push or local `-done` rename.
    draft bytes, and returns the complete apply argument array.
 4. Invoke exactly the returned `repository.sync.push.apply` workflow and
    argument array once. Apply rechecks the plan, draft hash and publication
-   conditions. Carry the IDs and digests from this conversation; do not choose
-   a global latest plan. Report the result in the user's language. When stopped,
-   explain whether push started, what work is retained, and the supplied
-   `next_command` or inspection.
+   conditions. After it confirms the remote push and saves Git completion, it
+   checks for an exact existing PR and creates one Draft PR if none exists.
+   Carry the IDs and digests from this conversation; do not choose a global
+   latest plan. Report both push and PR results. When stopped, explain whether
+   push started, what work is retained, and the supplied `next_command` or
+   inspection.
 
 Successful steps need no extra conversational confirmation. The Agent writes
-PR prose; fixed helpers own all Git mechanics. A writing failure leaves the
-ordinary commit and prepared operation intact.
+PR prose; fixed helpers own Git mechanics and the fixed `gh` operations. A
+writing failure leaves the ordinary commit and prepared operation intact.
 
 ### PR evidence
 
@@ -157,10 +160,12 @@ Fetch again before apply; a changed base stops with a fresh-evidence /
 `sync pull` instruction while preserving the ordinary commit. Delegate to
 `pr.recommit.push` with the pinned base and draft. Share its backup, explicit
 remote lease/new-branch absence expectation, publication attempt receipt, exact
-post-push `0 0` check and `-done` rename. Do not reconstruct this sequence in
-the Agent. Do not retry a consumed plan or an unknown remote mutation.
-The remote branch keeps its published name; only the local branch receives
-`-done`. The human creates and merges the PR using the saved title/body.
+post-push `0 0` check and `-done` rename. Only after those results and the
+operation's `completed` state are saved does the helper inspect or create a PR.
+Do not reconstruct this sequence in the Agent. Do not retry a consumed plan or
+an unknown remote mutation. The remote branch keeps its published name; only
+the local branch receives `-done`. The helper creates a Draft PR from the saved
+title/body when possible. The human reviews, marks it ready, and merges it.
 Afterward, explicit `sync pull` can verify the merge and create the next work
 branch, or the human can report it with the existing `github merge done`.
 
@@ -168,6 +173,31 @@ Results report the ordinary commit as created/skipped, the stopped stage,
 backup and final branch. A remote result that cannot be verified is
 `unresolved`, requires inspection of the saved publication attempt, and may
 not be cleared by a new pull or an automatic resend.
+
+### Draft PR stage and recovery
+
+Git push and Draft PR creation have separate saved outcomes. If `gh` is not
+on PATH, sync push returns Git success with `pr_status: skipped`, the saved
+draft path, and a manual compare URL. A pre-create read or validation failure
+returns `not-created` or `conflict` while keeping the Git operation completed.
+An uncertain create returns `unresolved`; do not issue another create.
+
+Resume the exact operation with:
+
+```text
+repository.sync.push.pr.resume --repo <path> --operation <operation-id> --apply
+```
+
+Resume requires the saved publication receipt and plan, unchanged remote
+identity, and the exact local `-done` branch and HEAD. A recorded pending or
+uncertain create is READONLY: the helper searches for the exact repository,
+head ref/SHA, and base, then verifies the matching PR detail. If none is found
+or the read fails, it stays unresolved. A previous `created`, `existing`, or
+`conflict` result is also read-only. Only a never-started operation, a confirmed
+missing `gh`, or a definitely pre-create `not-created` result can proceed to
+another single create after all checks pass. Resume never recommits, pushes,
+renames, merges, tags, or creates a Release. Once the PR is merged, use the
+normal `miku-scm sync pull` workflow.
 
 ## Recovery
 
