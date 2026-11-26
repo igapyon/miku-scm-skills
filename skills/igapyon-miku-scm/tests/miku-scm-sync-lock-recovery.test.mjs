@@ -11,6 +11,7 @@ import { context, newId, loadOperation, readJson, hash, lock, newOperation } fro
 const stateUrl = new URL("../scripts/miku-scm-sync-state.mjs", import.meta.url).href;
 const pullUrl = new URL("../scripts/sync-pull.mjs", import.meta.url).href;
 const pushUrl = new URL("../scripts/sync-push.mjs", import.meta.url).href;
+const lockPath = "workplace/miku-scm/sync/miku-scm-sync.lock";
 
 async function crash(t, mode = "pull") {
   const f = await fixture(t);
@@ -20,18 +21,28 @@ async function crash(t, mode = "pull") {
     import {prepareSyncPush} from ${JSON.stringify(pushUrl)};
     const repo=process.argv[1];
     const git=(cwd,args,options)=>{
-      if(args[0]==='branch' && existsSync(repo+'/.git/miku-scm-sync.lock')) process.exit(93);
+      if(args[0]==='branch' && existsSync(repo+'/' + ${JSON.stringify(lockPath)})) process.exit(93);
       return syncGit(cwd,args,options);
     };
     await ${mode === "pull" ? "runSyncPull" : "prepareSyncPush"}({repo,remote:'origin',base:'devel',apply:true},{git});`;
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", code, f.repo], { encoding: "utf8" });
   assert.equal(child.status, 93, child.stderr);
-  const file = path.join(f.repo, ".git", "miku-scm-sync.lock");
+  const file = path.join(f.repo, lockPath);
+  await assert.rejects(access(path.join(f.repo, ".git", "miku-scm-sync.lock")), { code: "ENOENT" });
   const record = JSON.parse(await readFile(file, "utf8"));
   assert.equal(record.schema_version, 2);
   assert.equal(record.phase, "initializing");
   return { ...f, file, record };
 }
+
+test("a lock left by a previous version blocks sync and remains in place", async (t) => {
+  const f = await fixture(t);
+  const legacyFile = path.join(f.repo, ".git", "miku-scm-sync.lock");
+  await writeFile(legacyFile, "previous lock");
+  await assert.rejects(runSyncPull(f.options), /Previous miku-scm sync lock remains/);
+  assert.equal(await readFile(legacyFile, "utf8"), "previous lock");
+  await assert.rejects(access(path.join(f.repo, lockPath)), { code: "ENOENT" });
+});
 
 test("initializing lock from a dead process can be explicitly cancelled", async (t) => {
   for (const mode of ["pull", "push"]) await t.test(mode, async (sub) => {

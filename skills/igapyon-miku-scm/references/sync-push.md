@@ -202,7 +202,7 @@ normal `miku-scm sync pull` workflow.
 ## Recovery
 
 A repeated plain `sync push` is the normal continuation command. Under the
-repository lock, the helper considers only a single pending push for the current
+worktree lock in `workplace/miku-scm/sync/`, the helper considers only a single pending push for the current
 repository, branch and selected remote. It verifies remote configuration and
 saved plan integrity. An unchanged unapplied plan returns the same evidence and
 existing draft digest without another commit. Changed local work, local base or
