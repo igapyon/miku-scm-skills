@@ -29,6 +29,7 @@ const WORKFLOW_TITLES = Object.freeze({
   "repository.sync.push.evidence.read": "Sync push additional PR evidence",
   "repository.sync.push.draft.prepare": "Sync push draft validation",
   "repository.sync.push.apply": "Sync push",
+  "repository.sync.push.pr.resume": "Sync push Draft PR recovery",
   "work.commit": "Work commit",
   "pr.publish.preflight": "PR publication",
   "pr.publish.apply": "PR publication",
@@ -393,20 +394,22 @@ function appendRecommit(lines, result) {
   }
 }
 
-function appendPublication(lines, result) {
+function appendPublication(lines, result, { includePrHandoff = true } = {}) {
   lines.push(`Repository: ${displayValue(result.repository)}`);
   lines.push(`Pushed branch: ${displayValue(result.pushed_branch)}`);
   lines.push(`Final branch: ${displayValue(result.final_branch)}`);
   lines.push(`Final status: ${displayValue(result.final_status)}`);
   lines.push(`Post-push comparison: ${displayValue(result.comparison)}`);
   lines.push(`Repository URL: ${displayValue(result.repository_url, "unresolved")}`);
-  lines.push(`PR lookup: ${displayValue(result.pr_lookup, "unresolved")}`);
-  if (result.pr_url) {
-    lines.push(`PR URL: ${displayValue(result.pr_url, "unresolved")}`);
-  } else if (Array.isArray(result.pr_urls) && result.pr_urls.length > 0) {
-    lines.push(`PR URLs: ${result.pr_urls.map((url) => displayValue(url, "unresolved")).join(", ")}`);
-  } else {
-    lines.push(`PR creation URL: ${displayValue(result.pr_creation_url, "unresolved")}`);
+  if (includePrHandoff) {
+    lines.push(`PR lookup: ${displayValue(result.pr_lookup, "unresolved")}`);
+    if (result.pr_url) {
+      lines.push(`PR URL: ${displayValue(result.pr_url, "unresolved")}`);
+    } else if (Array.isArray(result.pr_urls) && result.pr_urls.length > 0) {
+      lines.push(`PR URLs: ${result.pr_urls.map((url) => displayValue(url, "unresolved")).join(", ")}`);
+    } else {
+      lines.push(`PR creation URL: ${displayValue(result.pr_creation_url, "unresolved")}`);
+    }
   }
   lines.push(`Version: ${displayValue(result.version, "unresolved")}`);
   lines.push(`Recommended tag: ${displayValue(result.recommended_tag, "unresolved")}`);
@@ -651,11 +654,22 @@ export function renderHumanOutput({
       if (["partial", "unresolved"].includes(r.status)) lines.push(`Recovery operation: ${r.operation_id}`);
       else if (workflow === "repository.sync.pull") lines.push(`Operation: ${r.operation_id}`);
     }
-    if (r.status === "published") appendPublication(lines, r.publication ?? r);
+    if (r.status === "published") appendPublication(lines, r.publication ?? r, { includePrHandoff: !r.pr_status });
     else if (r.publication) {
       lines.push(`Publication status: ${displayValue(r.publication.status)}`);
       lines.push(`Publication stage: ${displayValue(r.publication.stage)}`);
       lines.push(`Publication detail: ${displayValue(r.publication.message)}`);
+    }
+    if (r.pr_status) {
+      lines.push(`Draft PR status: ${displayValue(r.pr_status)}`);
+      if (r.pr_number) lines.push(`Draft PR number: ${displayValue(r.pr_number)}`);
+      if (r.pr_url) lines.push(`Draft PR URL: ${displayValue(r.pr_url)}`);
+      if (r.pr_state) lines.push(`Draft PR state: ${displayValue(r.pr_state)}${r.pr_merged ? " (merged)" : ""}`);
+      if (typeof r.pr_is_draft === "boolean") lines.push(`Draft PR draft: ${r.pr_is_draft ? "yes" : "no"}`);
+      if (r.pr_reason) lines.push(`Draft PR reason: ${displayValue(r.pr_reason)}`);
+      if (r.pr_manual_url && r.pr_manual_url !== "unresolved") lines.push(`Manual PR URL: ${displayValue(r.pr_manual_url)}`);
+      if (r.pr_draft) lines.push(`Saved PR draft: ${displayValue(r.pr_draft)}`);
+      if (Array.isArray(r.pr_related_urls)) for (const url of r.pr_related_urls) lines.push(`Related PR URL: ${displayValue(url)}`);
     }
   } else if (workflow === "repository.status") {
     appendRepositoryStatus(lines, result ?? {});

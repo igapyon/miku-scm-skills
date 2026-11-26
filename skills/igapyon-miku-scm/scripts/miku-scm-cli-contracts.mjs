@@ -309,10 +309,16 @@ export const WORKFLOW_CLI_CONTRACTS = Object.freeze({
     { network_access: "Git fetch and remote branch reads", authentication: "existing Git authentication", operational_artifacts: ["workplace/miku-scm/sync"], notes: ["Repeated sync push reuses an unchanged preparation or supersedes an unapplied stale one. A structured preflight-only failure or the legacy branch-path ENOENT can be recovered after verifying plan integrity, backup, branch ancestry and remote absence. Existing drafts include their byte digest; fresh plans use distinct draft paths. Unknown publication outcomes remain blocked. No automatic sync pull or version increment."] },
   ),
   "repository.sync.push.apply": contract(
-    "Consume the exact sync push plan and draft, then recommit and publish once.",
+    "Consume the exact sync push plan and draft, recommit and publish once, then create or verify one Draft PR when GitHub CLI is available.",
     [repoPath, option("--operation", "<operation-id>", "Exact prepared operation ID.", { required: true }), option("--expected-plan-sha256", "<sha256>", "Exact prepare result plan digest.", { required: true }), option("--pr-draft", "<repository-relative-path>", "Exact suggested PR draft path.", { required: true }), option("--expected-draft-sha256", "<sha256>", "SHA-256 of the saved draft bytes.", { required: true }), apply],
     ["--operation", "<operation-id>", "--expected-plan-sha256", "<sha256>", "--pr-draft", "workplace/miku-scm/pr-drafts/<draft>.md", "--expected-draft-sha256", "<sha256>", "--apply"],
-    { network_access: "Git fetch, branch push and verification", authentication: "existing Git authentication", operational_artifacts: ["workplace/miku-scm/sync", "workplace/miku-scm/ok-push"], notes: ["Linux/other platforms produce a notice and continue with available commands. Creates no PR, merge, tag or Release. An unresolved push must never be resent automatically."] },
+    { network_access: "Git fetch, branch push and verification; fixed GitHub PR reads and Draft PR creation", authentication: "existing Git authentication and, when gh is on PATH, existing gh authentication", operational_artifacts: ["workplace/miku-scm/sync", "workplace/miku-scm/ok-push"], notes: ["A confirmed Git push is saved before PR handling. If gh is not on PATH, PR creation is skipped and the saved draft plus manual URL are returned. A Draft PR is created only after exact read checks and is verified by a fixed detail read. PR creation failure never resends the Git push. No merge, tag or Release."] },
+  ),
+  "repository.sync.push.pr.resume": contract(
+    "Resume or reconcile only the Draft PR stage of one completed sync push.",
+    [repoPath, option("--operation", "<operation-id>", "Exact completed sync-push operation ID.", { required: true }), apply],
+    ["--operation", "<operation-id>", "--apply"],
+    { network_access: "Fixed GitHub PR reads and, only when no earlier create attempt is possible, one Draft PR creation", authentication: "existing gh authentication", operational_artifacts: ["workplace/miku-scm/sync"], notes: ["Requires the exact saved operation, publication receipt, unchanged remote identity, and its matching -done checkout. An unresolved or previously attempted create is READONLY during resume. Never recommits, pushes, renames branches, merges, tags, or creates a Release."] },
   ),
   "repository.sync.push.draft.prepare": contract(
     "Validate the exact saved sync push plan and draft bytes, then return arguments for the existing apply workflow without consuming the operation.",

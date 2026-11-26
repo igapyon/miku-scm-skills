@@ -17,8 +17,9 @@ using the PR text, and verified publication. Individual stages, Issue
 operations, and release audits are also available through the routes below.
 
 Fixed runners own Git/GitHub mechanics and execution records; the agent writes
-public prose from collected evidence. PR creation and merging, tag changes, and
-Release publication remain human steps in the normal flow.
+public prose from collected evidence. A normal sync push creates or verifies a
+Draft PR after the push is confirmed. Reviewing, marking it ready, merging, tag
+changes, and Release publication remain human steps.
 
 This Skill's directory is the **skill root**; a workflow's `--repo` is the
 **target repository**. Never derive the runner path from `--repo`. GitHub
@@ -35,6 +36,7 @@ repository inspection or mutation.
 | --- | --- |
 | `miku-scm sync pull` | `repository.sync.pull --apply` |
 | `miku-scm sync push` | `repository.sync.push.prepare --apply`, draft once, `repository.sync.push.draft.prepare`, then the exact returned apply workflow and argument array |
+| `miku-scm sync push --resume-pr <operation-id>` | `repository.sync.push.pr.resume --repo <path> --operation <id> --apply` for that completed push |
 | `miku-scm git add commit` | `work.commit --apply` |
 | `miku-scm draft recommit push` or its `pr recommit push` alias | `pr.recommit.push` fixed flow; keep its explicit rewrite gate |
 | bare `recommit` | PR text drafting and preflight; keep the local history rewrite gate |
@@ -47,15 +49,16 @@ repository inspection or mutation.
 For exact compound requests, finish their listed successful steps in the same
 turn without asking between them. A failed gate or uncertain result stops the
 sequence. Do not infer a different workflow from similar wording. `draft` means
-saved PR text; the human creates and merges PRs. This Skill alone owns the
+saved PR text and a GitHub Draft PR; the human reviews and merges it. This Skill alone owns the
 `draft recommit push` aliases; do not route them through `igapyon-github-writer`.
 
 Before editing the target worktree, committing, synchronizing, or switching to
 the next branch after a merge, check the current branch. For `*-done` and
 `rescue/done/*`, apply [the frozen branch procedure](references/runtime-done-recovery.md)
 before any normal runner call. After a successful sync push that leaves
-`*-done` checked out, name that branch, say it is frozen, and tell the user to
-run `miku-scm sync pull` after the PR merge before starting new work.
+`*-done` checked out, report the Draft PR result, name that branch, say it is
+frozen, and tell the user to run `miku-scm sync pull` after the PR merge before
+starting new work.
 
 ## Fixed runner rules
 

@@ -6,7 +6,7 @@ const ISSUE_APPROVAL_CONTRACT_VERSION = 2;
 const RESCUE_BRANCH_SOURCE = "miku-scm-rescue-branch.mjs";
 const WORKTREE_EVIDENCE = "miku-scm-worktree-evidence.mjs";
 const SYNC_SOURCES = ["miku-scm-sync-state.mjs", "miku-scm-sync-worktree.mjs", "miku-scm-sync-merge-check.mjs", "miku-scm-next-work.mjs", "miku-scm-command-runner.mjs", "miku-scm-jst-time.mjs", "miku-scm-repository.mjs", "miku-scm-operational-storage.mjs", "miku-scm-package-version-policy.mjs", RESCUE_BRANCH_SOURCE, WORKTREE_EVIDENCE];
-const SYNC_PUSH_SOURCES = [...SYNC_SOURCES, "work-commit.mjs", "miku-scm-fixed-command-runner.mjs", "miku-scm-operational-path.mjs", "miku-scm-writing-prepare.mjs", "miku-scm-sync-push-evidence.mjs", "pr-soft-reset-recommit-preflight.mjs", "pr-recommit-push.mjs", "post-recommit-publish.mjs"];
+const SYNC_PUSH_SOURCES = [...SYNC_SOURCES, "work-commit.mjs", "miku-scm-fixed-command-runner.mjs", "miku-scm-operational-path.mjs", "miku-scm-writing-prepare.mjs", "miku-scm-sync-push-evidence.mjs", "miku-scm-sync-draft-pr.mjs", "pr-soft-reset-recommit-preflight.mjs", "pr-recommit-push.mjs", "post-recommit-publish.mjs"];
 
 const WORKFLOW_DEFINITIONS = [
   {
@@ -267,7 +267,7 @@ const WORKFLOW_DEFINITIONS = [
   },
   {
     id: "repository.sync.push.apply",
-    contract_version: 4,
+    contract_version: 5,
     triggers: ["Prepared sync push execution only"],
     required_parameters: ["repository", "operation", "plan_digest", "draft_digest"],
     mutation_level: "remote",
@@ -275,6 +275,19 @@ const WORKFLOW_DEFINITIONS = [
     runner_entry: "sync-push.mjs",
     references: ["sync-push.md", "deterministic-workflow-runner.md"],
     contract_runtime_sources: SYNC_PUSH_SOURCES,
+    contract_test: "miku-scm-sync-draft-pr.test.mjs",
+  },
+  {
+    id: "repository.sync.push.pr.resume",
+    contract_version: 1,
+    triggers: ["miku-scm sync push --resume-pr <operation-id>", "Reconcile a completed sync-push Draft PR stage"],
+    required_parameters: ["repository", "completed_sync_push_operation"],
+    mutation_level: "remote",
+    approval_gate: "apply",
+    runner_entry: "sync-push.mjs",
+    references: ["sync-push.md", "deterministic-workflow-runner.md"],
+    contract_runtime_sources: SYNC_PUSH_SOURCES,
+    contract_test: "miku-scm-sync-draft-pr.test.mjs",
   },
   {
     id: "repository.sync.push.evidence.read",
@@ -493,7 +506,7 @@ export const WORKFLOW_MANIFEST = Object.freeze(WORKFLOW_DEFINITIONS.map((entry) 
     ])]) }
     : {}),
   contract_spec: entry.references.find((reference) => reference !== "deterministic-workflow-runner.md"),
-  contract_test: CONTRACT_TEST_BY_RUNNER[entry.runner_entry],
+  contract_test: entry.contract_test ?? CONTRACT_TEST_BY_RUNNER[entry.runner_entry],
   runtime_references: Object.freeze(entry.runtime_references ?? (entry.id === "repository.sync.pull"
     ? ["runtime-sync-pull.md"]
     : entry.id.startsWith("repository.sync.push.")

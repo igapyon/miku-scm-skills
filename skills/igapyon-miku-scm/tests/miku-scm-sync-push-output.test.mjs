@@ -18,6 +18,21 @@ test("sync push stop reports publication state and the command the user can run"
   assert.match(output, /Local work is retained/);
 });
 
+test("sync push output keeps a confirmed push visible when Draft PR handling is unresolved", () => {
+  const output = renderHumanOutput({ workflow: "repository.sync.push.apply", status: "unresolved", approvalGate: "apply", delegateStatus: "unresolved", mutationInvoked: true,
+    result: { status: "unresolved", publication_state: "published", operation_id: "00000000-0000-4000-8000-000000000001",
+      publication: { status: "published", pushed_branch: "work", final_branch: "work-done", comparison: "0 0" },
+      pr_status: "unresolved", pr_reason: "create-command-outcome-unknown", pr_manual_url: "https://github.com/acme/widget/compare/devel...work?expand=1",
+      pr_draft: "workplace/miku-scm/pr-drafts/change.md", next_action: "Reconcile the saved PR result." } });
+  assert.match(output, /Push state: published/);
+  assert.match(output, /Publication status: published/);
+  assert.match(output, /Draft PR status: unresolved/);
+  assert.match(output, /Draft PR reason: create-command-outcome-unknown/);
+  assert.match(output, /Manual PR URL: https:\/\/github.com\/acme\/widget\/compare/);
+  assert.match(output, /Saved PR draft: workplace\/miku-scm\/pr-drafts\/change\.md/);
+  assert.match(output, /Reconcile the saved PR result/);
+});
+
 function cli(cwd, format, workflow, args) {
   const result = spawnSync(process.execPath, [RUNNER, "--format", format, workflow, ...args], {
     cwd, encoding: "utf8", timeout: 60_000, maxBuffer: 8 * 1024 * 1024,

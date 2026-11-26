@@ -22,13 +22,21 @@ For `*-done` or `rescue/done/*`, follow the
    and plan digest. It returns the verified draft byte digest and the complete
    `repository.sync.push.apply` argument array. Do not edit or substitute paths.
 4. Execute exactly that workflow and argument array once. Apply rechecks the
-   plan, draft, base, worktree and publication state before backup/reset.
+   plan, draft, base, worktree and publication state before backup/reset. After
+   the push and remote verification succeed, it saves Git completion and then
+   creates or verifies one Draft PR from the saved title and body.
 
 A changed base requires an explicit sync pull and fresh preparation. A failure
 before apply preserves the prepared work. If apply or push is unresolved, inspect
 the saved receipt and remote; never resend automatically. Keep the ordinary
-commit, backup, index and worktree for recovery. Do not increment versions,
-create/merge a PR, or create a tag/Release as part of sync push.
+commit, backup, index and worktree for recovery. If `gh` is not on PATH, PR
+creation is skipped; report the manual comparison URL and saved draft path.
+If the PR result is unresolved, resume only that stage with
+`repository.sync.push.pr.resume --repo <path> --operation <id> --apply` from
+the exact published `-done` branch. The resume workflow reads the saved
+operation and never repeats an earlier uncertain create. Do not increment
+versions, mark the PR ready, merge it, or create a tag/Release as part of sync
+push.
 
 If runner output is cut, read only `result.json` and `plan.json` from that exact
 run and verify the target, run, workflow and operation IDs. Never rerun prepare

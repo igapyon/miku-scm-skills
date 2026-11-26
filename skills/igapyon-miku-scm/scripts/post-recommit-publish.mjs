@@ -498,7 +498,9 @@ async function runPublication(options, dependencies = {}) {
   gitText(git, root, ["branch", "-m", branch, doneBranch]);
   const finalStatus = gitText(git, root, ["status", "-sb"]);
   const repository = repositoryFromRemote(remoteUrl);
-  const prHandoff = resolvePrHandoff(repository, branch, gh);
+  const prHandoff = dependencies.deferPrHandoff
+    ? { repository_url: repository?.url ?? "unresolved", pr_creation_url: repository ? `${repository.url}/pull/new/${encodeURIComponent(branch)}` : "unresolved", pr_lookup: "deferred" }
+    : resolvePrHandoff(repository, branch, gh);
   const recommended = await resolveRecommendedTag(root, git, head);
 
   return {
