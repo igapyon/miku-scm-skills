@@ -261,10 +261,22 @@ test("sync pull rejects an excluded base before fetching or changing work", asyn
   assert.ok(!calls.some((args) => args[0] === "fetch")); assert.equal((await snapshot(await context(f.repo))).digest, before.digest);
 });
 
-test("sync locks exclude sibling worktrees and do not linger after prepare-like release", async (t) => {
+test("sync locks are independent across worktrees and release within each worktree", async (t) => {
   const f = await fixture(t); const sibling = path.join(f.directory, "sibling"); f.git(["worktree", "add", "-b", "sibling", sibling, "origin/devel"]);
-  const ctx = await context(f.repo); const siblingContext = await context(sibling); const id = newId(); const release = await lock(ctx, id);
-  await assert.rejects(lock(siblingContext, newId()), /Another sync holds/); await release(); const other = await lock(siblingContext, newId()); await other();
+  const ctx = await context(f.repo);
+  const siblingContext = await context(sibling);
+  const release = await lock(ctx, newId());
+  try {
+    await assert.rejects(lock(await context(f.repo), newId()), /Another sync holds/);
+    const releaseSibling = await lock(siblingContext, newId());
+    try {
+      assert.equal(path.dirname(ctx.syncLock.file), ctx.storage);
+      assert.equal(path.dirname(siblingContext.syncLock.file), siblingContext.storage);
+      assert.notEqual(ctx.syncLock.file, siblingContext.syncLock.file);
+    } finally { await releaseSibling(); }
+  } finally { await release(); }
+  const releaseAgain = await lock(ctx, newId());
+  await releaseAgain();
 });
 
 test("sync pull parser rejects command passthrough and ambiguous recovery", () => {

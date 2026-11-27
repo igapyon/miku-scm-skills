@@ -8,7 +8,7 @@ exact merged PR and supports squash and rebase merges.
 and selected base. Pass its full SHA with
 `--published-head <verified-published-head> --confirmed-merged --apply`.
 The entry records the confirmed `-done` branch and full SHA. After acquiring
-the shared sync lock, the operation checks both against one repository
+the worktree's sync lock, the operation checks both against one repository
 snapshot before it fetches or moves work. It then fetches the selected base and
 checks Git ancestry. It preserves the legacy base inference from the done
 branch and remote `HEAD`, and accepts a local

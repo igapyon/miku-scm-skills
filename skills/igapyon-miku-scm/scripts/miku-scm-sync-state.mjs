@@ -284,7 +284,14 @@ export async function checkPending(ctx, { pull = false, except = "" } = {}) {
 }
 
 export async function lock(ctx, id, recover = false, { allowMissingInitialization = false } = {}) {
-  const file = path.join(ctx.common, "miku-scm-sync.lock");
+  const legacyFile = path.join(ctx.common, "miku-scm-sync.lock");
+  const legacyLock = await lstat(legacyFile).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+    return null;
+  });
+  if (legacyLock) throw new Error(`Previous miku-scm sync lock remains at ${legacyFile}; finish or recover that operation with the version that created it`);
+
+  const file = path.join(ctx.storage, "miku-scm-sync.lock");
   const token = randomUUID();
   let handle;
   try { handle = await open(file, "wx", 0o600); }
@@ -293,7 +300,7 @@ export async function lock(ctx, id, recover = false, { allowMissingInitializatio
     const previous = await readJson(file);
     let alive = true;
     try { process.kill(previous?.pid, 0); } catch (caught) { if (caught.code === "ESRCH") alive = false; }
-    if (!recover || alive || previous?.operation !== id || previous.root !== ctx.root) throw new Error(`Another sync holds the repository lock${previous?.operation ? ` (${previous.operation})` : ""}`);
+    if (!recover || alive || previous?.operation !== id || previous.root !== ctx.root) throw new Error(`Another sync holds the worktree lock${previous?.operation ? ` (${previous.operation})` : ""}`);
     let missingDirectory = false;
     try { await lstat(path.dirname(operationPath(ctx, id))); }
     catch (caught) { if (caught.code !== "ENOENT") throw caught; missingDirectory = true; }

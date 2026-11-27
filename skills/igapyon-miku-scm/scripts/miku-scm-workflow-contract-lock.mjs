@@ -239,9 +239,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-pull.mjs",
     "contract_spec": "sync-pull.md",
     "contract_test": "sync-pull.test.mjs",
-    "runner_sha256": "2027799ded4e95366b9aa34ecd7ff45e2f71ea6584f96cad8ccc694d737747ca",
-    "spec_sha256": "d2b82e429e8a62b6c39b6a8c97e08aabb7870a4948c46c88671542def79855ff",
-    "pair_sha256": "0f644f7a8dadd18796800a807a5d94a1a912a283ebf54f07217cd0c9ed40f16e"
+    "runner_sha256": "8f23586e80dab5303ba0f6fb66e48601530c9cb6e45a5a310cb8bc16d94dc958",
+    "spec_sha256": "45a217987cfc5466849947376734bd66e22d2cc42a97dea7d7afc17bb40733bb",
+    "pair_sha256": "443d16d4d25a47754462dbdebe9eb494e66550d8cd3fb66499f9d88c30d94463"
   },
   {
     "workflow": "repository.sync.push.prepare",
@@ -250,9 +250,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "sync-push.test.mjs",
-    "runner_sha256": "f0948de391f2fd5abc157092c4c74e27ce045e671333bbcd9bbc257797d10c68",
-    "spec_sha256": "35c69ce2aa1d6f0e0d2ddc21cb5fb28cd74c9de9f8a1176ca48186ce390da69e",
-    "pair_sha256": "880b89351b432e5658f15f073f71c3df657cde6378e0c02c7f1cd8614da01759"
+    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
+    "pair_sha256": "375b812569d3ad57e3262ec5c9b072d135ae34256acce87dd4277c7da7265456"
   },
   {
     "workflow": "repository.sync.push.draft.prepare",
@@ -261,9 +261,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "sync-push.test.mjs",
-    "runner_sha256": "f0948de391f2fd5abc157092c4c74e27ce045e671333bbcd9bbc257797d10c68",
-    "spec_sha256": "35c69ce2aa1d6f0e0d2ddc21cb5fb28cd74c9de9f8a1176ca48186ce390da69e",
-    "pair_sha256": "b3622a7200970f40725866d62fb4d4210315bc7013a41c9be4f312559643ba9f"
+    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
+    "pair_sha256": "82a235872def8111c2be3bcab948dff96c773e315b16080cd460fbd03cf66aeb"
   },
   {
     "workflow": "repository.sync.push.apply",
@@ -272,9 +272,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "miku-scm-sync-draft-pr.test.mjs",
-    "runner_sha256": "f0948de391f2fd5abc157092c4c74e27ce045e671333bbcd9bbc257797d10c68",
-    "spec_sha256": "35c69ce2aa1d6f0e0d2ddc21cb5fb28cd74c9de9f8a1176ca48186ce390da69e",
-    "pair_sha256": "6b8fe64b3c1271df652ebc6c4e4e75deada648b0a0d6534e7da52ab8f59e7816"
+    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
+    "pair_sha256": "4eae5fd67a6f86a67a867f5aa5132fd45c00192823e3883ca4a270c7669cf2fc"
   },
   {
     "workflow": "repository.sync.push.pr.resume",
@@ -283,9 +283,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "miku-scm-sync-draft-pr.test.mjs",
-    "runner_sha256": "f0948de391f2fd5abc157092c4c74e27ce045e671333bbcd9bbc257797d10c68",
-    "spec_sha256": "35c69ce2aa1d6f0e0d2ddc21cb5fb28cd74c9de9f8a1176ca48186ce390da69e",
-    "pair_sha256": "f248b07d84391afd5fdff1dcac563d9cd2aa2337eeb997734a0997b6aff8bed8"
+    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
+    "pair_sha256": "f5b1bcf7031a5db135a13e2e88f8ef5a0fc8dcaf1da118acfc6b19a4985c3381"
   },
   {
     "workflow": "repository.sync.push.evidence.read",
@@ -294,9 +294,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "sync-push.test.mjs",
-    "runner_sha256": "f0948de391f2fd5abc157092c4c74e27ce045e671333bbcd9bbc257797d10c68",
-    "spec_sha256": "35c69ce2aa1d6f0e0d2ddc21cb5fb28cd74c9de9f8a1176ca48186ce390da69e",
-    "pair_sha256": "503f6e5fe0ff748a1b0bb50ec1da9bd7997fee96fe58d5e88f5760f05aaf6390"
+    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
+    "pair_sha256": "b3f66342cbc991aed38a2db7c410d1ff030fb76b3d0aee4bdf558031bad1d948"
   },
   {
     "workflow": "repository.post-merge.next-work",
@@ -305,9 +305,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "post-merge-next-work.mjs",
     "contract_spec": "scm-rules.md",
     "contract_test": "post-merge-next-work.test.mjs",
-    "runner_sha256": "8072f2aa3bd947783534d47dd63f18f40e8dff58c14f643a0ad72cfd586380a2",
+    "runner_sha256": "aa573b91c21c81209b3d482d6e31424676993ec38db48a6619f964933ff54965",
     "spec_sha256": "19e36a7d384c1a4a43c30fbbf3a7bfc857504d7d0bc748d0631e97000e7aa3b7",
-    "pair_sha256": "0e2fb6ac018dde4adc6ac128980c8b773e06010b5468e5c0df1df7aa34216926"
+    "pair_sha256": "4eb6b8f2aa7ef13e0b578b2691a585813aae54f2a583f48c211a3b7dc86d28cd"
   },
   {
     "workflow": "repository.done.recover",
@@ -316,9 +316,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "done-recovery.mjs",
     "contract_spec": "done-recovery.md",
     "contract_test": "done-recovery.test.mjs",
-    "runner_sha256": "9bdb379873fc429a6614368226f5710a11feae1c064c8b7aac48ec6d537df0d5",
+    "runner_sha256": "dbae7171dcccb82a7aa73603c2998c6aedeeff132f7c8e1109416eba35efdc57",
     "spec_sha256": "4dddde0fb392e20a70e9b645ea94b3a9278bc447635da01469626395774c6c4f",
-    "pair_sha256": "32a358d4f9885b50ab295dda66c64e92a4e5094f2a3567927ff7d292e76fd90d"
+    "pair_sha256": "8be8180e8b20028cea9d30943c485e3877c093b62fd9c9d03873499d27ace1c6"
   },
   {
     "workflow": "work.commit",

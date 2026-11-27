@@ -43,8 +43,12 @@ otherwise stop before backup/stash because publication evidence is incomplete.
 The helper fixes the real worktree, remote identity and expanded fetch/push
 URL digests and fetch/tag configuration, branch, HEAD, binary index/working
 diffs and untracked contents.
-It uses a common-Git-directory execution lock and a persistent operation
-journal under ignored `workplace/miku-scm/sync/`. Existing merge, rebase,
+It stores the execution lock `miku-scm-sync.lock` beside the persistent
+operation journal under ignored `workplace/miku-scm/sync/`. Each worktree
+has its own lock. Finish running sync operations before upgrading the runner.
+If a lock remains in the common Git directory, finish or recover that operation
+with the version that created it before using the new runner.
+Existing merge, rebase,
 cherry-pick, conflicts, detached HEAD, shallow history, sparse checkout and
 submodules stop before work mutation.
 
