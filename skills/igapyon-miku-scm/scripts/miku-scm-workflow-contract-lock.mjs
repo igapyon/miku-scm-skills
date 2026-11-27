@@ -250,9 +250,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "sync-push.test.mjs",
-    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "runner_sha256": "a04537d0bc93a90c724d78ed3a5543f761d8cf57bc3d8295ac11bd2f3c626aca",
     "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
-    "pair_sha256": "375b812569d3ad57e3262ec5c9b072d135ae34256acce87dd4277c7da7265456"
+    "pair_sha256": "cd0e5ff10ed103291e1ac14bdca834e65338c9e5a48e622392763ae90f1ec3e3"
   },
   {
     "workflow": "repository.sync.push.draft.prepare",
@@ -261,9 +261,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "sync-push.test.mjs",
-    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "runner_sha256": "a04537d0bc93a90c724d78ed3a5543f761d8cf57bc3d8295ac11bd2f3c626aca",
     "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
-    "pair_sha256": "82a235872def8111c2be3bcab948dff96c773e315b16080cd460fbd03cf66aeb"
+    "pair_sha256": "aab411d40beb5f4efd5b1624464a96947d87cefef728d3d2e1761908e355aa91"
   },
   {
     "workflow": "repository.sync.push.apply",
@@ -272,9 +272,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "miku-scm-sync-draft-pr.test.mjs",
-    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "runner_sha256": "a04537d0bc93a90c724d78ed3a5543f761d8cf57bc3d8295ac11bd2f3c626aca",
     "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
-    "pair_sha256": "4eae5fd67a6f86a67a867f5aa5132fd45c00192823e3883ca4a270c7669cf2fc"
+    "pair_sha256": "08fd58e1354d7915251a2d14dd1ee5f8866f155125d25254b81ab6eeab592e0b"
   },
   {
     "workflow": "repository.sync.push.pr.resume",
@@ -283,9 +283,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "miku-scm-sync-draft-pr.test.mjs",
-    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "runner_sha256": "a04537d0bc93a90c724d78ed3a5543f761d8cf57bc3d8295ac11bd2f3c626aca",
     "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
-    "pair_sha256": "f5b1bcf7031a5db135a13e2e88f8ef5a0fc8dcaf1da118acfc6b19a4985c3381"
+    "pair_sha256": "42f59f19dda9a4df4c655a52c15c1b89a61a63ba37143ad9fe5cf301b54c71a1"
   },
   {
     "workflow": "repository.sync.push.evidence.read",
@@ -294,9 +294,9 @@ export const WORKFLOW_CONTRACT_LOCK = Object.freeze([
     "runner_entry": "sync-push.mjs",
     "contract_spec": "sync-push.md",
     "contract_test": "sync-push.test.mjs",
-    "runner_sha256": "ff2740f667a55ad9ed257dc5a50954a3e49e69f11c25d480bc89157db6f7d3ff",
+    "runner_sha256": "a04537d0bc93a90c724d78ed3a5543f761d8cf57bc3d8295ac11bd2f3c626aca",
     "spec_sha256": "21da73ccf6807671a0b658d01a54d76f86cf521ca6c926c265d92e83f561c204",
-    "pair_sha256": "b3f66342cbc991aed38a2db7c410d1ff030fb76b3d0aee4bdf558031bad1d948"
+    "pair_sha256": "15ee19afb98f3875fc3e1bb68dfa161fa836dd827f42b827132057ffade397d0"
   },
   {
     "workflow": "repository.post-merge.next-work",

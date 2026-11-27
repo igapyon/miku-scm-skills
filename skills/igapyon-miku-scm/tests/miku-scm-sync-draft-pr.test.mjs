@@ -57,12 +57,17 @@ async function completedOperation(t) {
   return { f, ctx, op, target, draft: Buffer.from(draft), operationFile: operationPath(ctx, op.id) };
 }
 
-function pull(target, { number = 42, state = "open", merged = false, draft = true, head = target.head, base = target.base,
+function listedPull(target, { number = 42, state = "open", draft = true, head = target.head, base = target.base,
   headRepo = target.repository.full_name, baseRepo = target.repository.full_name } = {}) {
-  return { number, url: `https://${target.repository.host}/${target.repository.full_name}/pull/${number}`,
-    state, merged, draft,
+  return { number, url: `https://api.github.com/repos/${target.repository.full_name}/pulls/${number}`,
+    html_url: `https://${target.repository.host}/${target.repository.full_name}/pull/${number}`,
+    state, draft,
     head: { repo: { full_name: headRepo }, ref: target.branch, sha: head },
     base: { repo: { full_name: baseRepo }, ref: base } };
+}
+
+function pullDetail(target, { merged = false, ...options } = {}) {
+  return { ...listedPull(target, options), merged };
 }
 
 test("sync Draft PR helper skips cleanly when gh is missing from PATH", async (t) => {
@@ -91,7 +96,7 @@ test("sync Draft PR helper creates once with the saved title and body, then veri
   const state = await completedOperation(t);
   const calls = [];
   let bodyFile;
-  const detail = pull(state.target);
+  const detail = pullDetail(state.target);
   const result = await completeSyncDraftPr(state.ctx, state.op, { allowCreate: true }, {
     readDraft: async (relative) => readFile(`${state.f.repo}/${relative}`),
     gh: async (_cwd, args, options) => {
@@ -106,7 +111,7 @@ test("sync Draft PR helper creates once with the saved title and body, then veri
         assert.equal(args[11], "--body-file");
         bodyFile = args[12];
         assert.equal(await readFile(bodyFile, "utf8"), "日本語の説明; `$(touch should-not-run)`\n");
-        return { ok: true, stdout: `${detail.url}\n` };
+        return { ok: true, stdout: `${detail.html_url}\n` };
       }
       if (args[0] === "api" && args[3] === "repos/acme/widget/pulls/42") {
         return { ok: true, stdout: JSON.stringify(detail) };
@@ -117,6 +122,7 @@ test("sync Draft PR helper creates once with the saved title and body, then veri
   assert.equal(result.status, "published", JSON.stringify(result));
   assert.equal(result.pr_status, "created");
   assert.equal(result.pr_number, 42);
+  assert.equal(result.pr_url, detail.html_url);
   assert.equal(result.pr_is_draft, true);
   assert.equal(result.pull_request_mutation, true);
   assert.equal(calls.length, 3);
@@ -129,13 +135,13 @@ test("sync Draft PR helper creates once with the saved title and body, then veri
 
 test("an exact existing Draft PR is verified instead of creating another one", async (t) => {
   const state = await completedOperation(t);
-  const existing = pull(state.target, { number: 43 });
+  const existing = listedPull(state.target, { number: 43 });
   let createCount = 0;
   const result = await completeSyncDraftPr(state.ctx, state.op, { allowCreate: true }, {
     readDraft: async (relative) => readFile(path.join(state.f.repo, relative)),
     gh: (_cwd, args) => {
       if (args[0] === "api" && args[3] === "repos/acme/widget/pulls") return { ok: true, stdout: JSON.stringify([existing]) };
-      if (args[0] === "api" && args[3] === "repos/acme/widget/pulls/43") return { ok: true, stdout: JSON.stringify(existing) };
+      if (args[0] === "api" && args[3] === "repos/acme/widget/pulls/43") return { ok: true, stdout: JSON.stringify({ ...existing, merged: false }) };
       createCount++;
       assert.fail(`Existing pull must prevent create: ${JSON.stringify(args)}`);
     },
@@ -143,6 +149,7 @@ test("an exact existing Draft PR is verified instead of creating another one", a
   assert.equal(result.status, "published");
   assert.equal(result.pr_status, "existing");
   assert.equal(result.pr_number, 43);
+  assert.equal(result.pr_url, existing.html_url);
   assert.equal(result.pr_is_draft, true);
   assert.equal(result.pull_request_mutation, false);
   assert.equal(createCount, 0);
@@ -182,8 +189,8 @@ test("sync Draft PR uncertain create resumes with READONLY lookup and never crea
 test("matching fork and stale closed pulls do not block a new PR", async (t) => {
   const state = await completedOperation(t);
   let createCount = 0;
-  const fork = pull(state.target, { number: 3, headRepo: "someone/widget-fork" });
-  const old = pull(state.target, { number: 4, state: "closed", merged: false, head: "f".repeat(40) });
+  const fork = listedPull(state.target, { number: 3, headRepo: "someone/widget-fork" });
+  const old = listedPull(state.target, { number: 4, state: "closed", head: "f".repeat(40) });
   const result = await completeSyncDraftPr(state.ctx, state.op, { allowCreate: true }, {
     readDraft: async (relative) => readFile(`${state.f.repo}/${relative}`),
     gh: (_cwd, args) => {
@@ -199,7 +206,7 @@ test("matching fork and stale closed pulls do not block a new PR", async (t) => 
 test("an open PR from the same head branch with a different base is a conflict", async (t) => {
   const state = await completedOperation(t);
   let createCount = 0;
-  const conflict = pull(state.target, { number: 19, base: "release" });
+  const conflict = listedPull(state.target, { number: 19, base: "release" });
   const result = await completeSyncDraftPr(state.ctx, state.op, { allowCreate: true }, {
     readDraft: async (relative) => readFile(path.join(state.f.repo, relative)),
     gh: (_cwd, args) => {
@@ -209,13 +216,13 @@ test("an open PR from the same head branch with a different base is a conflict",
     },
   });
   assert.equal(result.pr_status, "conflict");
-  assert.equal(result.pr_related_urls[0], conflict.url);
+  assert.equal(result.pr_related_urls[0], conflict.html_url);
   assert.equal(createCount, 0);
 });
 
 test("an existing pull whose detail read fails can only be reconciled, never replaced", async (t) => {
   const state = await completedOperation(t);
-  const matching = pull(state.target);
+  const matching = listedPull(state.target);
   const first = await completeSyncDraftPr(state.ctx, state.op, { allowCreate: true }, {
     gh: (_cwd, args) => args[3] === "repos/acme/widget/pulls"
       ? { ok: true, stdout: JSON.stringify([matching]) } : { ok: false, status: 1 },
@@ -262,7 +269,7 @@ test("sync push defers its old PR lookup and creates one verified Draft PR after
         if (args[0] === "api" && args[3] === "repos/acme/widget/pulls/77") {
           const branch = f.git(["branch", "--show-current"]).replace(/-done$/, "");
           const sha = f.git(["rev-parse", "HEAD"]);
-          return { ok: true, stdout: JSON.stringify(pull({ ...prepared, branch, head: sha,
+          return { ok: true, stdout: JSON.stringify(pullDetail({ ...prepared, branch, head: sha,
             repository: { host: "github.com", full_name: "acme/widget" }, base: "devel" }, { number: 77 })) };
         }
         assert.fail(`Unexpected gh argv: ${JSON.stringify(args)}`);
@@ -305,30 +312,46 @@ test("sync push succeeds and leaves a manual Draft PR handoff when gh is missing
   assert.equal(op.draft_pr.status, "skipped");
 });
 
-test("PR-only resume verifies a matching pull and never repeats the uncertain create", async (t) => {
-  const state = await completedOperation(t);
-  state.op.draft_pr.attempt = { status: "unresolved", started_at: new Date().toISOString() };
-  state.op.draft_pr.status = "unresolved";
-  await saveOperation(state.ctx, state.op);
-  const matching = pull(state.target, { number: 91 });
-  let createCount = 0;
-  const resumed = await resumeSyncPushPr({ repo: state.f.repo, operation: state.op.id, apply: true }, {
-    git: githubGit,
-    draftPrDependencies: {
-      gh: (_cwd, args) => {
-        if (args[0] === "api" && args[3] === "repos/acme/widget/pulls") return { ok: true, stdout: JSON.stringify([matching]) };
-        if (args[0] === "api" && args[3] === "repos/acme/widget/pulls/91") return { ok: true, stdout: JSON.stringify(matching) };
-        createCount++;
-        assert.fail(`Resume must not mutate GitHub: ${JSON.stringify(args)}`);
+for (const { name, state: prState, merged, expectedStatus } of [
+  { name: "an open Draft PR", state: "open", merged: false, expectedStatus: "existing" },
+  { name: "a merged PR", state: "closed", merged: true, expectedStatus: "existing" },
+  { name: "a closed unmerged PR", state: "closed", merged: false, expectedStatus: "conflict" },
+]) {
+  test(`PR-only resume checks ${name} without repeating the uncertain create`, async (t) => {
+    const state = await completedOperation(t);
+    state.op.draft_pr.attempt = { status: "unresolved", started_at: new Date().toISOString() };
+    state.op.draft_pr.status = "unresolved";
+    await saveOperation(state.ctx, state.op);
+    const matching = listedPull(state.target, { number: 91, state: prState, draft: prState === "open" });
+    const calls = [];
+    const resumed = await resumeSyncPushPr({ repo: state.f.repo, operation: state.op.id, apply: true }, {
+      git: githubGit,
+      draftPrDependencies: {
+        gh: (_cwd, args) => {
+          calls.push(args);
+          if (args[0] === "api" && args[3] === "repos/acme/widget/pulls") return { ok: true, stdout: JSON.stringify([matching]) };
+          if (args[0] === "api" && args[3] === "repos/acme/widget/pulls/91") return { ok: true, stdout: JSON.stringify({ ...matching, merged }) };
+          assert.fail(`Resume must not mutate GitHub: ${JSON.stringify(args)}`);
+        },
       },
-    },
+    });
+    assert.equal(resumed.publication_state, "published");
+    assert.equal(resumed.pr_status, expectedStatus);
+    assert.equal(resumed.pull_request_mutation, false);
+    assert.equal(resumed.mutation_invoked, false);
+    assert.deepEqual(calls.map((args) => [args[0], args[3]]), [
+      ["api", "repos/acme/widget/pulls"],
+      ["api", "repos/acme/widget/pulls/91"],
+    ]);
+    if (expectedStatus === "existing") {
+      assert.equal(resumed.status, "published", JSON.stringify(resumed));
+      assert.equal(resumed.pr_number, 91);
+      assert.equal(resumed.pr_url, matching.html_url);
+      assert.equal(resumed.pr_merged, merged);
+    } else {
+      assert.equal(resumed.status, "partial");
+      assert.equal(resumed.pr_reason, "matching-pull-is-closed-unmerged");
+      assert.deepEqual(resumed.pr_related_urls, [matching.html_url]);
+    }
   });
-  assert.equal(resumed.status, "published", JSON.stringify(resumed));
-  assert.equal(resumed.publication_state, "published");
-  assert.equal(resumed.pr_status, "existing");
-  assert.equal(resumed.pr_number, 91);
-  assert.equal(resumed.pull_request_mutation, false);
-  assert.equal(resumed.mutation_invoked, false);
-  assert.equal(createCount, 0);
-});
-
+}

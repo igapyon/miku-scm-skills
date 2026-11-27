@@ -37,13 +37,12 @@ function safeUrl(value, repository, number = null) {
 
 function positiveNumber(value) { return Number.isSafeInteger(value) && value > 0; }
 
-function completePull(value, repository) {
+function validListedPull(value, repository) {
   const number = value?.number;
   const headRepo = value?.head?.repo?.full_name;
   const baseRepo = value?.base?.repo?.full_name;
-  return positiveNumber(number) && safeUrl(value.url, repository, number)
-    && ["open", "closed"].includes(value.state) && typeof value.merged === "boolean"
-    && typeof value.draft === "boolean" && typeof value.head?.ref === "string"
+  return positiveNumber(number) && safeUrl(value.html_url, repository, number)
+    && ["open", "closed"].includes(value.state) && typeof value.head?.ref === "string"
     && SHA.test(value.head?.sha ?? "") && typeof headRepo === "string"
     && typeof value.base?.ref === "string" && typeof baseRepo === "string";
 }
@@ -57,7 +56,7 @@ function targetPull(value, target) {
 }
 
 function summarize(pull) {
-  return { number: pull.number, url: pull.url, state: pull.state, merged: pull.merged, draft: pull.draft };
+  return { number: pull.number, url: pull.html_url, state: pull.state, merged: pull.merged, draft: pull.draft };
 }
 
 function parsedDraft(bytes) {
@@ -140,15 +139,12 @@ async function listPulls(ctx, target, gh) {
   let pulls;
   try { pulls = JSON.parse(result.stdout ?? result.out ?? ""); }
   catch { return { kind: "invalid" }; }
-  if (!Array.isArray(pulls) || pulls.length >= 100 || pulls.some((pull) => !completePull(pull, target.repository))) return { kind: "invalid" };
+  if (!Array.isArray(pulls) || pulls.length >= 100 || pulls.some((pull) => !validListedPull(pull, target.repository))) return { kind: "invalid" };
   const related = pulls.filter((pull) => pull.head.repo.full_name.toLowerCase() === target.repository.full_name.toLowerCase()
     && pull.head.ref === target.branch);
   const exact = related.filter((pull) => targetPull(pull, target));
-  const conflicts = related.filter((pull) => {
-    if (pull.state === "open") return !targetPull(pull, target);
-    return !pull.merged && targetPull(pull, target);
-  });
-  return { kind: "ok", exact, conflicts, related };
+  const conflicts = related.filter((pull) => pull.state === "open" && !targetPull(pull, target));
+  return { kind: "ok", exact, conflicts };
 }
 
 async function detailPull(ctx, repository, number, gh) {
@@ -158,7 +154,8 @@ async function detailPull(ctx, repository, number, gh) {
   if (!result?.ok) return null;
   try {
     const pull = JSON.parse(result.stdout ?? result.out ?? "");
-    return completePull(pull, repository) ? pull : null;
+    return validListedPull(pull, repository) && pull.number === number
+      && typeof pull.merged === "boolean" && typeof pull.draft === "boolean" ? pull : null;
   } catch { return null; }
 }
 
@@ -283,12 +280,12 @@ export async function completeSyncDraftPr(ctx, op, { allowCreate = true } = {}, 
   }
   if (listed.exact.length > 1) {
     const outcome = await persist(ctx, op, { pr_status: recovery ? "unresolved" : "conflict", reason: recovery ? "reconciliation-ambiguous" : "multiple-matching-pulls",
-      related_urls: listed.exact.map((pull) => pull.url), mutation_invoked: false });
+      related_urls: listed.exact.map((pull) => pull.html_url), mutation_invoked: false });
     return output(target, outcome);
   }
   if (listed.conflicts.length) {
     const outcome = await persist(ctx, op, { pr_status: recovery ? "unresolved" : "conflict", reason: recovery ? "reconciliation-found-mismatched-pull" : "published-head-has-conflicting-pull",
-      related_urls: listed.conflicts.map((pull) => pull.url), mutation_invoked: false });
+      related_urls: listed.conflicts.map((pull) => pull.html_url), mutation_invoked: false });
     return output(target, outcome);
   }
   if (listed.exact.length === 1) {
@@ -296,7 +293,7 @@ export async function completeSyncDraftPr(ctx, op, { allowCreate = true } = {}, 
     if (detail) {
       if (detail.state === "closed" && !detail.merged) {
         const outcome = await persist(ctx, op, { pr_status: "conflict", reason: "matching-pull-is-closed-unmerged",
-          related_urls: [detail.url], mutation_invoked: false });
+          related_urls: [detail.html_url], mutation_invoked: false });
         return output(target, outcome);
       }
       const outcome = await persist(ctx, op, { pr_status: "existing", pull_request: summarize(detail), mutation_invoked: false });
